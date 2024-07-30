@@ -12,8 +12,7 @@ class TestPositions(unittest.TestCase):
         self.assertEqual(len(self.positions), 2)
 
     def test_alter_position(self):
-        self.positions.alter_position(
-            0, 10, 20, 30, enums.DistanceUnits.ANGSTROM)
+        self.positions.alter_position(0, 10, 20, 30, enums.DistanceUnits.ANGSTROM)
         self.assertEqual(self.positions.as_angstrom(0), (10, 20, 30))
 
     def test_append(self):
@@ -44,8 +43,7 @@ class TestPositions(unittest.TestCase):
 
     def test_as_meter(self):
         self.assertEqual(
-            self.positions.as_meter(), [(
-                1e-10, 2e-10, 3e-10), (4e-10, 5e-10, 6e-10)]
+            self.positions.as_meter(), [(1e-10, 2e-10, 3e-10), (4e-10, 5e-10, 6e-10)]
         )
         self.assertEqual(self.positions.as_meter(0), (1e-10, 2e-10, 3e-10))
 
