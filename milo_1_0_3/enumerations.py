@@ -1,143 +1,171 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+"""Define all enumerations used throughout the program.
+
+This module contains all the enumeration classes used to represent various units
+and configuration options in the program. Using enums helps prevent errors from
+typos and provides better type safety than strings.
+
+Example:
+    from milo_1_0_3 import enumerations as enums
+    my_var = enums.ProgramID.GAUSSIAN_16
 """
-Declare all enumerations.
 
-Quick reference: https://docs.python.org/3/library/enum.html
-Enums declared in alphabetical order
-
-Suggested usage:
-from milo_1_0_3 import enumerations as enums
-my_var = enums.ProgramID.GAUSSIAN_16
-"""
-
-from enum import Enum
+from enum import Enum, auto
+from typing import List
 
 
 class AccelerationUnits(Enum):
-	"""Define enum for different units used to measure acceleration."""
+	"""Units for measuring acceleration."""
 
-	METER_PER_SEC_SQRD = 1
+	METER_PER_SEC_SQRD = auto()
 
 
 class AngleUnits(Enum):
-	"""Define enum for different units to measure angles."""
+	"""Units for measuring angles."""
 
-	RADIANS = 1
-	DEGREES = 2
+	RADIANS = auto()
+	DEGREES = auto()
 
 
 class DistanceUnits(Enum):
-	"""Define enum for different units used to measure distance."""
+	"""Units for measuring distance."""
 
-	ANGSTROM = 1
-	BOHR = 2
-	METER = 3
+	ANGSTROM = auto()
+	BOHR = auto()
+	METER = auto()
 
 
 class EnergyBoost(Enum):
-	"""Define enum for energy boost usage."""
+	"""Configuration for energy boost usage."""
 
-	OFF = 1
-	ON = 2
+	OFF = auto()
+	ON = auto()
 
 
 class EnergyUnits(Enum):
-	"""Define enum for different units to measure energy."""
+	"""Units for measuring energy."""
 
-	JOULE = 1
-	KCAL_PER_MOLE = 2
-	MILLIDYNE_ANGSTROM = 3
-	HARTREE = 4
+	JOULE = auto()
+	KCAL_PER_MOLE = auto()
+	MILLIDYNE_ANGSTROM = auto()
+	HARTREE = auto()
 
 
 class ForceConstantUnits(Enum):
-	"""Define enum for different units to measure force constants."""
+	"""Units for measuring force constants."""
 
-	NEWTON_PER_METER = 1
-	MILLIDYNE_PER_ANGSTROM = 2
+	NEWTON_PER_METER = auto()
+	MILLIDYNE_PER_ANGSTROM = auto()
 
 
 class ForceUnits(Enum):
-	"""Define enum for different units to measure force."""
+	"""Units for measuring force."""
 
-	NEWTON = 1
-	DYNE = 2
-	MILLIDYNE = 3
-	HARTREE_PER_BOHR = 4
+	NEWTON = auto()
+	DYNE = auto()
+	MILLIDYNE = auto()
+	HARTREE_PER_BOHR = auto()
 
 
 class FrequencyUnits(Enum):
-	"""Define enum for different units to measure frequency."""
+	"""Units for measuring frequency."""
 
-	RECIP_CM = 1
+	RECIP_CM = auto()
 
 
 class GeometryDisplacement(Enum):
-	"""Define enum for initial structure equilibrium displacement."""
+	"""Methods for initial structure equilibrium displacement."""
 
-	NONE = 1
-	EDGE_WEIGHTED = 2
-	GAUSSIAN_DISTRIBUTION = 3
-	UNIFORM = 4
+	NONE = auto()
+	EDGE_WEIGHTED = auto()
+	GAUSSIAN_DISTRIBUTION = auto()
+	UNIFORM = auto()
 
 
 class MassUnits(Enum):
-	"""Define enum for different units to measure mass."""
+	"""Units for measuring mass."""
 
-	AMU = 1
-	KILOGRAM = 2
-	GRAM = 3
+	AMU = auto()
+	KILOGRAM = auto()
+	GRAM = auto()
 
 
 class OscillatorType(Enum):
-	"""Define enum for how to treat harmonic oscillator."""
+	"""Methods for treating harmonic oscillator."""
 
-	QUASICLASSICAL = 1
-	CLASSICAL = 2
+	QUASICLASSICAL = auto()
+	CLASSICAL = auto()
 
 
 class PhaseDirection(Enum):
-	"""Define enum for possible phase directions."""
+	"""Options for phase directions."""
 
-	BRING_TOGETHER = 1
-	PUSH_APART = 2
-	RANDOM = 3
+	BRING_TOGETHER = auto()
+	PUSH_APART = auto()
+	RANDOM = auto()
 
 
 class ProgramID(Enum):
-	"""Define enum for electronic strucutre programs."""
+	"""Supported electronic structure programs."""
 
 	GAUSSIAN_16 = 1
-	G16 = 1  # Creates an alias for GAUSSIAN_16
+	G16 = 1  # Alias for GAUSSIAN_16
 	GAUSSIAN_09 = 2
-	G09 = 2
+	G09 = 2  # Alias for GAUSSIAN_09
 
 
 class PropagationAlgorithm(Enum):
-	"""Define enum for force propagation algorithms."""
+	"""Algorithms for force propagation."""
 
-	VERLET = 1
-	VELOCITY_VERLET = 2
+	VERLET = auto()
+	VELOCITY_VERLET = auto()
 
 
 class RotationalEnergy(Enum):
-	"""Define enum for whether to add rotational energy."""
+	"""Configuration for adding rotational energy."""
 
-	YES = 1
-	NO = 2
+	YES = auto()
+	NO = auto()
 
 
 class TimeUnits(Enum):
-	"""Define enum for different units to measure time."""
+	"""Units for measuring time."""
 
-	SECOND = 1
-	FEMTOSECOND = 2
+	SECOND = auto()
+	FEMTOSECOND = auto()
 
 
 class VelocityUnits(Enum):
-	"""Define enum for different units to measure velocity."""
+	"""Units for measuring velocity."""
 
-	METER_PER_SEC = 1
-	ANGSTROM_PER_FS = 2
-	ANGSTROM_PER_SEC = 3
+	METER_PER_SEC = auto()
+	ANGSTROM_PER_FS = auto()
+	ANGSTROM_PER_SEC = auto()
+
+
+def get_all_enums() -> List[type]:
+	"""Return a list of all enumeration classes in this module.
+
+	Returns:
+		List of all Enum classes defined in this module
+	"""
+	return [
+		AccelerationUnits,
+		AngleUnits,
+		DistanceUnits,
+		EnergyBoost,
+		EnergyUnits,
+		ForceConstantUnits,
+		ForceUnits,
+		FrequencyUnits,
+		GeometryDisplacement,
+		MassUnits,
+		OscillatorType,
+		PhaseDirection,
+		ProgramID,
+		PropagationAlgorithm,
+		RotationalEnergy,
+		TimeUnits,
+		VelocityUnits,
+	]

@@ -4,153 +4,6 @@
 
 from typing import ClassVar, Dict, Tuple, Union
 
-
-class Atom:
-	"""
-	Class representing an atomic element with its physical properties.
-
-	This class provides functionality to create and manipulate atomic data,
-	including support for different isotopes and mass specifications.
-
-	Attributes:
-	    symbol (str): Chemical symbol of the atom (e.g., 'H' for hydrogen)
-	    atomic_number (int): Number of protons in the nucleus
-	    mass_number (int): Total number of protons and neutrons, -1 if not applicable
-	    mass (float): Isotopic mass in atomic mass units (amu)
-	"""
-
-	default_from_symbol: ClassVar[Dict[str, Tuple[int, int, float]]]
-	default_from_number: ClassVar[Dict[int, Tuple[str, int, float]]]
-	isotope_data: ClassVar[Dict[Tuple[str, int], float]]
-
-	def __init__(
-		self,
-		symbol: str,
-		atomic_number: int,
-		mass_number: int,
-		mass: float,
-	) -> None:
-		"""
-		Initialize an atom with its fundamental properties.
-
-		Args:
-		    symbol: Chemical symbol of the atom
-		    atomic_number: Number of protons
-		    mass_number: Number of protons and neutrons
-		    mass: Isotopic mass in amu
-
-		Raises:
-		    ValueError: If atomic_number is negative or symbol is empty
-		"""
-		if atomic_number < 0:
-			raise ValueError("Atomic number cannot be negative")
-		if not symbol.strip():
-			raise ValueError("Symbol cannot be empty")
-
-		self._symbol = symbol.title()
-		self._atomic_number = atomic_number
-		self._mass_number = mass_number
-		self._mass = float(mass)
-
-	@property
-	def symbol(self) -> str:
-		"""Chemical symbol of the atom."""
-		return self._symbol
-
-	@property
-	def atomic_number(self) -> int:
-		"""Number of protons in the nucleus."""
-		return self._atomic_number
-
-	@property
-	def mass_number(self) -> int:
-		"""Total number of protons and neutrons."""
-		return self._mass_number
-
-	@mass_number.setter
-	def mass_number(self, value: int) -> None:
-		self._mass_number = value
-
-	@property
-	def mass(self) -> float:
-		"""Isotopic mass in atomic mass units."""
-		return self._mass
-
-	@mass.setter
-	def mass(self, value: float) -> None:
-		self._mass = float(value)
-
-	@classmethod
-	def from_symbol(cls, symbol: str) -> "Atom":
-		"""
-		Construct atom from symbol using most abundant isotope data.
-
-		Args:
-		    symbol: Chemical symbol of the atom
-
-		Returns:
-		    Atom: New atom instance with properties of the most abundant isotope
-		"""
-		atomic_number, mass_number, mass = cls.default_from_symbol[symbol.title()]
-		return cls(symbol, atomic_number, mass_number, mass)
-
-	@classmethod
-	def from_atomic_number(cls, atomic_number: int) -> "Atom":
-		"""
-		Construct atom from atomic number using most abundant isotope.
-
-		Args:
-		    atomic_number: Number of protons in the nucleus
-
-		Returns:
-		    Atom: New atom instance with properties of the most abundant isotope
-		"""
-		symbol, mass_number, mass = cls.default_from_number[atomic_number]
-		return cls(symbol, atomic_number, mass_number, mass)
-
-	def change_mass(self, mass_string: Union[str, float, int]) -> None:
-		"""
-		Update the mass and mass number of the atom.
-
-		Args:
-		    mass_string: New mass value. Can be:
-		        - A string with decimal point for exact mass
-		        - An integer or string without decimal for mass number
-		        - A float for exact mass
-
-		If given a mass number, tries to find the corresponding exact mass
-		from isotope_data. If not found, uses the mass number as the mass.
-		"""
-		mass_str = str(mass_string)
-
-		if "." in mass_str:
-			self.mass = float(mass_str)
-			self.mass_number = int(round(self.mass))
-		else:
-			try:
-				self.mass_number = int(mass_str)
-				self.mass = self.isotope_data[(self.symbol, self.mass_number)]
-			except KeyError:
-				self.mass_number = int(mass_str)
-				self.mass = float(mass_str)
-
-	def __str__(self) -> str:
-		"""Return string representation."""
-		return f"{self.symbol:2} {self.mass:11.7f} amu"
-
-	def __repr__(self) -> str:
-		"""
-		Return a detailed string representation of the atom.
-
-		Returns:
-		    str: String containing all atom properties
-		"""
-		return (
-			f"Atom(symbol='{self.symbol}', atomic_number={self.atomic_number}, "
-			f"mass_number={self.mass_number}, mass={self.mass})"
-		)
-
-
 # Default data for isotope with largest isotopic composition.
 # If all isotopes are radioactive, the listed isotope with the smallest mass
 # was chosen. (For these atoms, users should not rely on these dafaults.)
@@ -162,8 +15,6 @@ class Atom:
 default_from_symbol = {
 	# 'Symbol': (atomic_number, mass_number, mass),
 	"H": (1, 1, 1.00782503223),
-	"D": (1, 2, 2.01410177812),
-	"T": (1, 3, 3.0160492779),
 	"He": (2, 4, 4.00260325413),
 	"Li": (3, 7, 7.0160034366),
 	"Be": (4, 9, 9.012183065),
@@ -180,9 +31,116 @@ default_from_symbol = {
 	"P": (15, 31, 30.97376199842),
 	"S": (16, 32, 31.9720711744),
 	"Cl": (17, 35, 34.968852682),
+	"Ar": (18, 40, 39.9623831237),
+	"K": (19, 39, 38.9637064864),
+	"Ca": (20, 40, 39.9625906),
+	"Sc": (21, 45, 44.9559083),
+	"Ti": (22, 48, 47.9479409),
+	"V": (23, 51, 50.9439570),
+	"Cr": (24, 52, 51.9405062),
+	"Mn": (25, 55, 54.9380439),
+	"Fe": (26, 56, 55.9349363),
+	"Co": (27, 59, 58.9331943),
+	"Ni": (28, 58, 57.9353424),
+	"Cu": (29, 63, 62.9295977),
+	"Zn": (30, 64, 63.9291420),
+	"Ga": (31, 69, 68.9255735),
+	"Ge": (32, 74, 73.9211774),
+	"As": (33, 75, 74.9215945),
+	"Se": (34, 80, 79.9165196),
+	"Br": (35, 79, 78.9183361),
+	"Kr": (36, 84, 83.911507),
+	"Rb": (37, 85, 84.911789),
+	"Sr": (38, 88, 87.905612),
+	"Y": (39, 89, 88.905848),
+	"Zr": (40, 90, 89.904704),
+	"Nb": (41, 93, 92.906378),
+	"Mo": (42, 98, 97.905408),
+	"Tc": (43, 98, 97.907216),
+	"Ru": (44, 101, 100.905582),
+	"Rh": (45, 103, 102.905504),
+	"Pd": (46, 106, 105.903486),
+	"Ag": (47, 107, 106.905097),
+	"Cd": (48, 114, 113.903358),
+	"In": (49, 115, 114.903879),
+	"Sn": (50, 120, 119.902202),
+	"Sb": (51, 121, 120.903816),
+	"Te": (52, 130, 129.906224),
+	"I": (53, 127, 126.904473),
+	"Xe": (54, 132, 131.904155),
+	"Cs": (55, 133, 132.905452),
+	"Ba": (56, 138, 137.905247),
+	"La": (57, 139, 138.906353),
+	"Ce": (58, 140, 139.905439),
+	"Pr": (59, 141, 140.907653),
+	"Nd": (60, 142, 141.907723),
+	"Pm": (61, 145, 144.912749),
+	"Sm": (62, 152, 151.919732),
+	"Eu": (63, 153, 152.921230),
+	"Gd": (64, 158, 157.924104),
+	"Tb": (65, 159, 158.925347),
+	"Dy": (66, 164, 163.929175),
+	"Ho": (67, 165, 164.930322),
+	"Er": (68, 166, 165.930293),
+	"Tm": (69, 169, 168.934213),
+	"Yb": (70, 174, 173.938862),
+	"Lu": (71, 175, 174.940771),
+	"Hf": (72, 180, 179.946550),
+	"Ta": (73, 181, 180.947996),
+	"W": (74, 184, 183.950933),
+	"Re": (75, 187, 186.955751),
+	"Os": (76, 192, 191.961479),
+	"Ir": (77, 193, 192.962924),
+	"Pt": (78, 195, 194.964774),
+	"Au": (79, 197, 196.966569),
+	"Hg": (80, 202, 201.970643),
+	"Tl": (81, 205, 204.974428),
+	"Pb": (82, 208, 207.976652),
+	"Bi": (83, 209, 208.980399),
+	"Po": (84, 209, 208.982430),
+	"At": (85, 210, 209.987148),
+	"Rn": (86, 222, 222.017578),
+	"Fr": (87, 223, 223.019736),
+	"Ra": (88, 226, 226.025410),
+	"Ac": (89, 227, 227.027747),
+	"Th": (90, 232, 232.038055),
+	"Pa": (91, 231, 231.035882),
+	"U": (92, 238, 238.050786),
+	"Np": (93, 237, 237.048173),
+	"Pu": (94, 244, 244.064204),
+	"Am": (95, 243, 243.061381),
+	"Cm": (96, 247, 247.070353),
+	"Bk": (97, 247, 247.070307),
+	"Cf": (98, 251, 251.079587),
+	"Es": (99, 252, 252.082980),
+	"Fm": (100, 257, 257.095105),
+	"Md": (101, 258, 258.098431),
+	"No": (102, 259, 259.101030),
+	"Lr": (103, 262, 262.109610),
+	"Rf": (104, 267, 267.121790),
+	"Db": (105, 268, 268.125670),
+	"Sg": (106, 271, 271.133930),
+	"Bh": (107, 272, 272.138260),
+	"Hs": (108, 270, 270.134290),
+	"Mt": (109, 276, 276.151590),
+	"Ds": (110, 281, 281.164510),
+	"Rg": (111, 280, 280.165140),
+	"Cn": (112, 285, 285.177120),
+	"Nh": (113, 284, 284.178730),
+	"Fl": (114, 289, 289.190420),
+	"Mc": (115, 288, 288.192740),
+	"Lv": (116, 293, 293.204490),
+	"Ts": (117, 292, 292.207460),
+	"Og": (118, 294, 294.213920),
 }
 
-# Create reverse lookup dictionary
+# Special isotope symbols that map to specific mass numbers
+special_isotopes = {
+	"D": (1, 2, 2.01410177812),
+	"T": (1, 3, 3.0160492779),
+}
+
+# Create reverse lookup dictionary (using only standard isotopes)
 default_from_number = {num: (sym, mass_num, mass) for sym, (num, mass_num, mass) in default_from_symbol.items()}
 
 # Dictionary of exact masses for specific isotopes
@@ -191,6 +149,8 @@ isotope_data = {
 	("H", 1): 1.00782503223,
 	("H", 2): 2.01410177812,
 	("H", 3): 3.0160492779,
+	("D", 2): 2.01410177812,
+	("T", 3): 3.0160492779,
 	("He", 3): 3.0160293201,
 	("He", 4): 4.00260325413,
 	("Li", 6): 6.0151228874,
@@ -346,7 +306,6 @@ isotope_data = {
 	("Sn", 119): 118.90331117,
 	("Sn", 120): 119.90220163,
 	("Sn", 122): 121.90343655,
-	("Sn", 124): 123.90522021,
 	("Sb", 121): 120.90381639,
 	("Sb", 123): 122.90421786,
 	("Te", 120): 119.90402350,
@@ -535,3 +494,158 @@ isotope_data = {
 	("Ts", 292): 292.20746000,
 	("Og", 294): 294.21392000,
 }
+
+
+class Atom:
+	"""
+	Class representing an atomic element with its physical properties.
+
+	This class provides functionality to create and manipulate atomic data,
+	including support for different isotopes and mass specifications.
+
+	Attributes:
+		symbol (str): Chemical symbol of the atom (e.g., 'H' for hydrogen)
+		atomic_number (int): Number of protons in the nucleus
+		mass_number (int): Total number of protons and neutrons, -1 if not applicable
+		mass (float): Isotopic mass in atomic mass units (amu)
+	"""
+
+	# Add class variables for data access
+	default_from_symbol: ClassVar[Dict[str, Tuple[int, int, float]]] = {**default_from_symbol, **special_isotopes}
+	default_from_number: ClassVar[Dict[int, Tuple[str, int, float]]] = default_from_number
+	isotope_data: ClassVar[Dict[Tuple[str, int], float]] = isotope_data
+
+	def __init__(self, symbol: str, atomic_number: int, mass_number: int, mass: float) -> None:
+		"""Initialize an atom with its fundamental properties."""
+		if atomic_number < 0:
+			raise ValueError("Atomic number cannot be negative")
+		if not symbol.strip():
+			raise ValueError("Symbol cannot be empty")
+
+		self._symbol = symbol.title()
+		self._atomic_number = atomic_number
+		self._mass_number = mass_number
+		self._mass = float(mass)
+
+	@property
+	def symbol(self) -> str:
+		"""Chemical symbol of the atom."""
+		return self._symbol
+
+	@property
+	def atomic_number(self) -> int:
+		"""Number of protons in the nucleus."""
+		return self._atomic_number
+
+	@property
+	def mass_number(self) -> int:
+		"""Total number of protons and neutrons."""
+		return self._mass_number
+
+	@mass_number.setter
+	def mass_number(self, value: int) -> None:
+		self._mass_number = value
+
+	@property
+	def mass(self) -> float:
+		"""Isotopic mass in atomic mass units."""
+		return self._mass
+
+	@mass.setter
+	def mass(self, value: float) -> None:
+		self._mass = float(value)
+
+	@classmethod
+	def from_symbol_mass_number(cls, symbol: str, mass_number: int) -> "Atom":
+		"""
+		Construct atom from symbol and mass number.
+
+		Args:
+			symbol: Chemical symbol of the atom
+			mass_number: Mass number of the isotope
+
+		Returns:
+			Atom: New atom instance with properties of the specified isotope
+		"""
+		symbol = symbol.title()
+		atomic_number = cls.default_from_symbol[symbol][0]
+
+		# Try to get mass from isotope data, fall back to default if not found
+		try:
+			mass = cls.isotope_data[(symbol, mass_number)]
+		except KeyError:
+			# Use default mass if isotope not found
+			_, default_mass_number, mass = cls.default_from_symbol[symbol]
+			mass_number = default_mass_number
+
+		return cls(symbol, atomic_number, mass_number, mass)
+
+	@classmethod
+	def from_symbol(cls, symbol: str) -> "Atom":
+		"""
+		Construct atom from symbol using most abundant isotope data.
+
+		Args:
+			symbol: Chemical symbol of the atom
+
+		Returns:
+			Atom: New atom instance with properties of the most abundant isotope
+		"""
+		atomic_number, mass_number, mass = cls.default_from_symbol[symbol.title()]
+		return cls(symbol, atomic_number, mass_number, mass)
+
+	@classmethod
+	def from_atomic_number(cls, atomic_number: int) -> "Atom":
+		"""
+		Construct atom from atomic number using most abundant isotope.
+
+		Args:
+			atomic_number: Number of protons in the nucleus
+
+		Returns:
+			Atom: New atom instance with properties of the most abundant isotope
+		"""
+		symbol, mass_number, mass = cls.default_from_number[atomic_number]
+		return cls(symbol, atomic_number, mass_number, mass)
+
+	def change_mass(self, mass_string: Union[str, float, int]) -> None:
+		"""
+		Update the mass and mass number of the atom.
+
+		Args:
+			mass_string: New mass value. Can be:
+				- A string with decimal point for exact mass
+				- An integer or string without decimal for mass number
+				- A float for exact mass
+
+		If given a mass number, tries to find the corresponding exact mass
+		from isotope_data. If not found, uses the mass number as the mass.
+		"""
+		mass_str = str(mass_string)
+
+		if "." in mass_str:
+			self.mass = float(mass_str)
+			self.mass_number = int(round(self.mass))
+		else:
+			try:
+				self.mass_number = int(mass_str)
+				self.mass = self.isotope_data[(self.symbol, self.mass_number)]
+			except KeyError:
+				self.mass_number = int(mass_str)
+				self.mass = float(mass_str)
+
+	def __str__(self) -> str:
+		"""Return string representation."""
+		return f"{self.symbol:2} {self.mass:11.7f} amu"
+
+	def __repr__(self) -> str:
+		"""
+		Return a detailed string representation of the atom.
+
+		Returns:
+			str: String containing all atom properties
+		"""
+		return (
+			f"Atom(symbol='{self.symbol}', atomic_number={self.atomic_number}, "
+			f"mass_number={self.mass_number}, mass={self.mass})"
+		)

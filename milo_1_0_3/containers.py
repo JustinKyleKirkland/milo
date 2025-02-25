@@ -1,56 +1,63 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Define classes used to extend list functionality to make units easy."""
+"""Define container classes for handling physical quantities with units."""
 
+from typing import List, Optional, Tuple, Union
+
+from milo_1_0_3 import atom
 from milo_1_0_3 import enumerations as enums
 from milo_1_0_3 import scientific_constants as sc
-from milo_1_0_3 import atom
 
 
 class Positions:
-	"""
-	Extend a list to make xyz positional data easy to use.
+	"""Container for atomic position data, stored internally in angstroms."""
 
-	Always stored as angstrom
-	"""
+	def __init__(self) -> None:
+		"""Initialize empty positions list."""
+		self._positions: List[Tuple[float, float, float]] = []
 
-	def __init__(self):
-		"""Create the internal list that holds positions."""
-		self._positions = list()
-
-	def __len__(self):
-		"""Return the length of _positions."""
+	def __len__(self) -> int:
+		"""Return number of positions stored."""
 		return len(self._positions)
 
-	def alter_position(self, index, x, y, z, units):
-		"""Set the xyz position at index to new tuple."""
-		if units is enums.DistanceUnits.ANGSTROM:
-			factor = 1
-		elif units is enums.DistanceUnits.BOHR:
-			factor = sc.BOHR_TO_ANGSTROM
-		elif units is enums.DistanceUnits.METER:
-			factor = sc.METER_TO_ANGSTROM
-		else:
-			raise ValueError(f"Unknown positions unit: {units}")
+	def alter_position(self, index: int, x: float, y: float, z: float, units: enums.DistanceUnits) -> None:
+		"""
+		Update position at given index.
+
+		Args:
+			index: Position to update
+			x, y, z: New coordinates
+			units: Units of input coordinates
+		"""
+		factor = self._get_conversion_factor(units)
 		self._positions[index] = tuple(i * factor for i in (x, y, z))
 
-	def append(self, x, y, z, units):
-		"""Append x, y, z as a tuple to the end of the list."""
-		if units is enums.DistanceUnits.ANGSTROM:
-			factor = 1
-		elif units is enums.DistanceUnits.BOHR:
-			factor = sc.BOHR_TO_ANGSTROM
-		elif units is enums.DistanceUnits.METER:
-			factor = sc.METER_TO_ANGSTROM
-		else:
-			raise ValueError(f"Unknown positions unit: {units}")
+	def append(self, x: float, y: float, z: float, units: enums.DistanceUnits) -> None:
+		"""
+		Add new position.
+
+		Args:
+			x, y, z: Coordinates to add
+			units: Units of input coordinates
+		"""
+		factor = self._get_conversion_factor(units)
 		self._positions.append(tuple(i * factor for i in (x, y, z)))
 
-	def as_angstrom(self, index=None):
-		"""Return the entire list or specific index in angstroms."""
-		if index is None:
-			return self._positions
-		return self._positions[index]
+	def _get_conversion_factor(self, units: enums.DistanceUnits) -> float:
+		"""Get conversion factor from input units to angstroms."""
+		if units is enums.DistanceUnits.ANGSTROM:
+			return 1.0
+		elif units is enums.DistanceUnits.BOHR:
+			return sc.BOHR_TO_ANGSTROM
+		elif units is enums.DistanceUnits.METER:
+			return sc.METER_TO_ANGSTROM
+		raise ValueError(f"Unknown distance units: {units}")
+
+	def as_angstrom(
+		self, index: Optional[int] = None
+	) -> Union[Tuple[float, float, float], List[Tuple[float, float, float]]]:
+		"""Get positions in angstroms."""
+		return self._positions[index] if index is not None else self._positions
 
 	def as_bohr(self, index=None):
 		"""Return the entire list or specific index in bohr radii."""
@@ -466,29 +473,21 @@ class Frequencies:
 
 
 class ForceConstants:
-	"""
-	Extend a list to make force constant data easy to use.
-
-	Always store as Newtons per meter
-	"""
+	"""Container for force constant data, stored internally in N/m."""
 
 	def __init__(self):
-		"""Create the internal list that holds forces."""
-		self._force_constants = list()
-
-	def __len__(self):
-		"""Return the length of _force_constants."""
-		return len(self._force_constants)
+		"""Initialize empty force constants list."""
+		self._force_constants = []
 
 	def append(self, force_constant, units):
-		"""Append force_constant to the end of the list."""
+		"""Append force constant to the list."""
 		if units is enums.ForceConstantUnits.NEWTON_PER_METER:
-			factor = 1
+			factor = 1.0
 		elif units is enums.ForceConstantUnits.MILLIDYNE_PER_ANGSTROM:
-			factor = sc.FROM_MILLI * sc.DYNE_TO_NEWTON * (1 / sc.ANGSTROM_TO_METER)
+			factor = 0.1  # Convert mdyne/Å to N/m
 		else:
-			raise ValueError(f"Unknown Force Constant Units: {units}")
-		self._force_constants.append(force_constant * factor)
+			raise ValueError(f"Unknown force constant units: {units}")
+		self._force_constants.append(tuple(x * factor for x in force_constant))
 
 	def as_newton_per_meter(self, index=None):
 		"""Return the entire list or specific index in N/m."""
@@ -516,30 +515,22 @@ class ForceConstants:
 
 
 class Masses:
-	"""
-	Extend a list to make force constant data easy to use.
-
-	Always store as amu
-	"""
+	"""Container for mass data, stored internally in AMU."""
 
 	def __init__(self):
-		"""Create the internal list that holds forces."""
-		self._masses = list()
-
-	def __len__(self):
-		"""Return the length of _masses."""
-		return len(self._masses)
+		"""Initialize empty masses list."""
+		self._masses = []
 
 	def append(self, mass, units):
-		"""Append mass as a tuple to the end of the list."""
+		"""Append mass to the list."""
 		if units is enums.MassUnits.AMU:
-			factor = 1
-		elif units is enums.MassUnits.KILOGRAMS:
+			factor = 1.0
+		elif units is enums.MassUnits.KILOGRAM:
 			factor = sc.KG_TO_AMU
-		elif units is enums.MassUnits.GRAMS:
+		elif units is enums.MassUnits.GRAM:
 			factor = sc.TO_KILO * sc.KG_TO_AMU
 		else:
-			raise ValueError(f"Unknown Mass Units: {units}")
+			raise ValueError(f"Unknown mass units: {units}")
 		self._masses.append(mass * factor)
 
 	def as_amu(self, index=None):
