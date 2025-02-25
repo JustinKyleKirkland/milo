@@ -1,87 +1,111 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Provide extended functionality from standard random."""
+"""Extended functionality for random number generation with reproducible seeds."""
 
 import math
 import os
 import random
+import time
+from typing import Optional
 
 
-class RandomNumberGenerator():
-    """
-    Provide extended functionality from standard random.
+class RandomNumberGenerator:
+	"""
+	Extended functionality from Python's random module with reproducible seeds.
 
-    This was created to ensure that all random calls throughout the program
-    used the same seed, which could then be output to allow reproducibility
-    between different runs.
-    """
+	This class ensures that all random calls throughout the program use the same
+	seed, which can be output to allow reproducibility between different runs.
+	"""
 
-    def __init__(self, seed=None):
-        """
-        Create object from seed, generating new seed if seed is 0 or not given.
+	def __init__(self, seed: Optional[int] = None) -> None:
+		"""
+		Initialize random number generator with optional seed.
 
-        The seed it used to initialize a random.Random() object. If the seed is
-        0 or not given, a new seed will be generated. It will first attempt to
-        generate the seed from os.urandom (which is platform dependent but
-        usually pulls from /dev/random/). If this fails due to a
-        NotImplementedError, it will create a seed using system time and the
-        process id.
-        """
-        self.seed = seed
-        if self.seed is None:
-            try:
-                self.seed = int.from_bytes(os.urandom(5),
-                                           byteorder='big', signed=False)
-            except NotImplementedError:
-                import time
-                current_time = str(int(time.time()))
-                process_id = str(os.getpid())
-                self.seed = int(process_id
-                                + current_time[-(12 - len(process_id)):])
-        self.rng = random.Random(self.seed)
+		If seed is None or 0, generates a new seed using os.urandom() if available,
+		otherwise falls back to using system time and process ID.
 
-    def reset_seed(self, seed=None):
-        """Reset the seed and create a new random.Random() object with it."""
-        self.__init__(seed)
+		Args:
+		    seed: Integer seed for random number generation. If None or 0,
+		         a new seed will be generated.
+		"""
+		self.seed = seed
+		if self.seed is None:
+			self.seed = self._generate_seed()
+		self.rng = random.Random(self.seed)
 
-    def uniform(self):
-        """Return a uniformly distributed random number between 0 and 1."""
-        return self.rng.random()
+	def _generate_seed(self) -> int:
+		"""
+		Generate a random seed.
 
-    def edge_weighted(self):
-        """
-        Return an edge weighted random number between -1 and 1.
+		Returns:
+		    int: A random seed generated either from os.urandom() or
+		         from system time and process ID.
+		"""
+		try:
+			return int.from_bytes(os.urandom(5), byteorder="big", signed=False)
+		except NotImplementedError:
+			# Fallback to time-based seed if os.urandom not available
+			current_time = str(int(time.time()))
+			process_id = str(os.getpid())
+			return int(process_id + current_time[-(12 - len(process_id)) :])
 
-        Implemented by taking the sin of a random number from a uniform
-        distribution between 0 and 2*pi.
-        """
-        return math.sin(2 * math.pi * self.rng.random())
+	def reset_seed(self, seed: Optional[int] = None) -> None:
+		"""
+		Reset the random number generator with a new seed.
 
-    def gaussian(self):
-        """
-        Return a random number [-1, 1] from a modified normal distribution.
+		Args:
+		    seed: New seed value. If None, generates a new random seed.
+		"""
+		self.__init__(seed)
 
-        The random number is returned from a normal distribution with mu = 0
-        and, sigma = 1/sqrt(2), only sampled between -1 and 1, inclusive.
+	def uniform(self) -> float:
+		"""
+		Generate a uniform random number between 0 and 1.
 
-        Sigma was chosen to be 1/sqrt(2) so the probability of the distribution
-        being greater than 1 or less than -1 would be the same as the
-        probability of being outside the classically allowed region of the
-        quantum harmonic oscillator. References: https://physicspages.com/pdf/G
-        riffiths%20QM/Griffiths%20Problems%2002.15.pdf; https://phys.libretexts
-        .org/Bookshelves/University_Physics/Book%3A_University_Physics_(OpenSta
-        x)/Map%3A_University_Physics_III_-_Optics_and_Modern_Physics_(OpenStax)
-        /07%3A_Quantum_Mechanics/7.06%3A_The_Quantum_Harmonic_Oscillator
-        """
-        mu = 0
-        sigma = 0.7071067811865475  # 1 / sqrt(2)
-        possible_number = self.rng.gauss(mu, sigma)
-        while possible_number < -1 or possible_number > 1:
-            possible_number = self.rng.gauss(mu, sigma)
-        return possible_number
+		Returns:
+		    float: Random number from uniform distribution [0, 1).
+		"""
+		return self.rng.random()
 
-    def one_or_neg_one(self):
-        """Return one or negative one randomly with equal probability."""
-        if self.rng.random() >= 0.5:
-            return 1
-        return -1
+	def edge_weighted(self) -> float:
+		"""
+		Generate an edge-weighted random number between -1 and 1.
+
+		Returns a value from a distribution that favors the edges (-1 and 1)
+		over the center. Implemented using sin(2π * uniform).
+
+		Returns:
+		    float: Random number from edge-weighted distribution [-1, 1].
+		"""
+		return math.sin(2 * math.pi * self.rng.random())
+
+	def gaussian(self) -> float:
+		"""
+		Generate a random number from a truncated normal distribution.
+
+		Returns a value from a normal distribution with μ=0 and σ=1/√2,
+		truncated to the interval [-1, 1]. The standard deviation is chosen
+		to match the quantum harmonic oscillator's classical turning points.
+
+		References:
+		    - https://physicspages.com/pdf/Griffiths%20QM/Griffiths%20Problems%2002.15.pdf
+		    - https://phys.libretexts.org/Bookshelves/University_Physics/Book%3A_University_Physics_(OpenStax)/Map%3A_University_Physics_III_-_Optics_and_Modern_Physics_(OpenStax)/07%3A_Quantum_Mechanics/7.06%3A_The_Quantum_Harmonic_Oscillator
+
+		Returns:
+		    float: Random number from truncated normal distribution [-1, 1].
+		"""
+		mu = 0
+		sigma = 1 / math.sqrt(2)  # σ = 1/√2 to match quantum harmonic oscillator
+		while True:
+			value = self.rng.gauss(mu, sigma)
+			if -1 <= value <= 1:
+				return value
+
+	def one_or_neg_one(self) -> int:
+		"""
+		Generate either 1 or -1 with equal probability.
+
+		Returns:
+		    int: Either 1 or -1 with 50/50 probability.
+		"""
+		return 1 if self.rng.random() >= 0.5 else -1

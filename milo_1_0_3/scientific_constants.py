@@ -1,47 +1,118 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Declare scientific constants used throughout Milo."""
+"""
+Scientific constants and unit conversions used throughout Milo.
 
-# constants
-h = 6.62607015E-34  # planck's constant in joule * second
-c = 29979245800  # speed of light in cm / second
-CLASSICAL_SPACING = 2  # cm^-1
-GAS_CONSTANT_KCAL = 0.00198720425864083  # gas constant: kcal / (mol * kelvin)
-AVOGADROS_NUMBER = 6.02214076E23  # number of particles in one mole
+This module provides fundamental physical constants and common unit conversions
+used in scientific calculations. All values are in SI units unless otherwise noted.
+"""
 
-# conversions
-# prefixes
-FROM_KILO = 1.0E3
-TO_KILO = 1 / FROM_KILO
-TO_MILLI = 1.0E3
-FROM_MILLI = 1 / TO_MILLI
-TO_CENTI = 1.0E2
-FROM_CENTI = 1 / TO_CENTI
-# number of particles
-MOLE_TO_PARTICLE = AVOGADROS_NUMBER
-PARTICLE_TO_MOLE = 1 / AVOGADROS_NUMBER
-# distance
-ANGSTROM_TO_METER = 1.0E-10
-METER_TO_ANGSTROM = 1 / ANGSTROM_TO_METER
-BOHR_TO_ANGSTROM = 0.52917721090380
-ANGSTROM_TO_BOHR = 1 / BOHR_TO_ANGSTROM
-# mass
-AMU_TO_KG = 1.66053878E-27
-KG_TO_AMU = 1 / AMU_TO_KG
-# force
-HARTREE_PER_BOHR_TO_NEWTON = 8.2387234983E-8
-NEWTON_TO_HARTREE_PER_BOHR = 1 / HARTREE_PER_BOHR_TO_NEWTON
-NEWTON_TO_DYNE = 1.0E5
-DYNE_TO_NEWTON = 1 / NEWTON_TO_DYNE
-# time
-SECOND_TO_FEMTOSECOND = 1.0E15
-FEMTOSECOND_TO_SECOND = 1 / SECOND_TO_FEMTOSECOND
-# energy
-CALORIE_TO_JOULE = 4.184
-JOULE_TO_CALORIE = 1 / CALORIE_TO_JOULE
-JOULE_TO_KCAL_PER_MOLE = TO_KILO * JOULE_TO_CALORIE / PARTICLE_TO_MOLE
-KCAL_PER_MOLE_TO_JOULE = 1 / JOULE_TO_KCAL_PER_MOLE
-JOULE_TO_MILLIDYNE_ANGSTROM = TO_MILLI * NEWTON_TO_DYNE * METER_TO_ANGSTROM
-MILLIDYNE_ANGSTROM_TO_JOULE = 1 / JOULE_TO_MILLIDYNE_ANGSTROM
-HARTREE_TO_JOULE = 4.359744722207185E-18
-JOULE_TO_HARTREE = 1 / HARTREE_TO_JOULE
+from typing import Final
+
+# Fundamental Physical Constants
+# ----------------------------
+#: Planck's constant (J⋅s)
+h: Final[float] = 6.62607015e-34
+
+#: Speed of light (cm/s)
+c: Final[float] = 29979245800
+
+#: Avogadro's number (particles/mol)
+AVOGADROS_NUMBER: Final[float] = 6.02214076e23
+
+#: Gas constant (kcal/(mol⋅K))
+GAS_CONSTANT_KCAL: Final[float] = 0.00198720425864083
+
+#: Classical energy level spacing (cm^-1)
+CLASSICAL_SPACING: Final[int] = 2
+
+
+# Metric Prefix Conversions
+# -----------------------
+#: Conversion factor from kilo (×10³)
+FROM_KILO: Final[float] = 1.0e3
+#: Conversion factor to kilo (×10⁻³)
+TO_KILO: Final[float] = 1 / FROM_KILO
+
+#: Conversion factor to milli (×10³)
+TO_MILLI: Final[float] = 1.0e3
+#: Conversion factor from milli (×10⁻³)
+FROM_MILLI: Final[float] = 1 / TO_MILLI
+
+#: Conversion factor to centi (×10²)
+TO_CENTI: Final[float] = 1.0e2
+#: Conversion factor from centi (×10⁻²)
+FROM_CENTI: Final[float] = 1 / TO_CENTI
+
+
+# Particle/Mole Conversions
+# -----------------------
+#: Convert from moles to number of particles
+MOLE_TO_PARTICLE: Final[float] = AVOGADROS_NUMBER
+#: Convert from number of particles to moles
+PARTICLE_TO_MOLE: Final[float] = 1 / AVOGADROS_NUMBER
+
+
+# Distance Conversions
+# ------------------
+#: Convert from Ångström to meter (×10⁻¹⁰)
+ANGSTROM_TO_METER: Final[float] = 1.0e-10
+#: Convert from meter to Ångström (×10¹⁰)
+METER_TO_ANGSTROM: Final[float] = 1 / ANGSTROM_TO_METER
+
+#: Convert from Bohr to Ångström
+BOHR_TO_ANGSTROM: Final[float] = 0.52917721090380
+#: Convert from Ångström to Bohr
+ANGSTROM_TO_BOHR: Final[float] = 1 / BOHR_TO_ANGSTROM
+
+
+# Mass Conversions
+# --------------
+#: Convert from atomic mass units to kilograms
+AMU_TO_KG: Final[float] = 1.66053878e-27
+#: Convert from kilograms to atomic mass units
+KG_TO_AMU: Final[float] = 1 / AMU_TO_KG
+
+
+# Force Conversions
+# ---------------
+#: Convert from Hartree/Bohr to Newton
+HARTREE_PER_BOHR_TO_NEWTON: Final[float] = 8.2387234983e-8
+#: Convert from Newton to Hartree/Bohr
+NEWTON_TO_HARTREE_PER_BOHR: Final[float] = 1 / HARTREE_PER_BOHR_TO_NEWTON
+
+#: Convert from Newton to dyne (×10⁵)
+NEWTON_TO_DYNE: Final[float] = 1.0e5
+#: Convert from dyne to Newton (×10⁻⁵)
+DYNE_TO_NEWTON: Final[float] = 1 / NEWTON_TO_DYNE
+
+
+# Time Conversions
+# --------------
+#: Convert from seconds to femtoseconds (×10¹⁵)
+SECOND_TO_FEMTOSECOND: Final[float] = 1.0e15
+#: Convert from femtoseconds to seconds (×10⁻¹⁵)
+FEMTOSECOND_TO_SECOND: Final[float] = 1 / SECOND_TO_FEMTOSECOND
+
+
+# Energy Conversions
+# ----------------
+#: Convert from calories to Joules
+CALORIE_TO_JOULE: Final[float] = 4.184
+#: Convert from Joules to calories
+JOULE_TO_CALORIE: Final[float] = 1 / CALORIE_TO_JOULE
+
+#: Convert from Joules to kcal/mol
+JOULE_TO_KCAL_PER_MOLE: Final[float] = TO_KILO * JOULE_TO_CALORIE / PARTICLE_TO_MOLE
+#: Convert from kcal/mol to Joules
+KCAL_PER_MOLE_TO_JOULE: Final[float] = 1 / JOULE_TO_KCAL_PER_MOLE
+
+#: Convert from Joules to millidyne-Ångström
+JOULE_TO_MILLIDYNE_ANGSTROM: Final[float] = TO_MILLI * NEWTON_TO_DYNE * METER_TO_ANGSTROM
+#: Convert from millidyne-Ångström to Joules
+MILLIDYNE_ANGSTROM_TO_JOULE: Final[float] = 1 / JOULE_TO_MILLIDYNE_ANGSTROM
+
+#: Convert from Hartree to Joules
+HARTREE_TO_JOULE: Final[float] = 4.359744722207185e-18
+#: Convert from Joules to Hartree
+JOULE_TO_HARTREE: Final[float] = 1 / HARTREE_TO_JOULE
