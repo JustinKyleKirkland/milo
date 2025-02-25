@@ -3,21 +3,29 @@
 """Generate initial velocities based on frequency data."""
 
 import math
+from typing import List, Tuple
 
-from milo_1_0_3 import containers
+from milo_1_0_3 import containers, exceptions
 from milo_1_0_3 import enumerations as enums
-from milo_1_0_3 import exceptions
 from milo_1_0_3 import scientific_constants as sc
+from milo_1_0_3.program_state import ProgramState
 
 
-def _calculate_zero_point_energies(program_state):
+def _calculate_zero_point_energies(program_state: ProgramState) -> Tuple[containers.Energies, containers.Energies]:
 	"""
 	Calculate the zero point energy for each mode.
 
-	When oscillator_type is set to CLASSICAL, it isn't technically ZPE, but it
-	is treated the same, so for simplicity the variable is still named ZPE
+	Args:
+		program_state: The program state containing frequencies and oscillator type
 
-	Reference C++ - lines 59.
+	Returns:
+		Tuple containing:
+		- zero_point_energies: Energy for each mode
+		- total_zpe: Sum of all zero point energies
+
+	Notes:
+		When oscillator_type is set to CLASSICAL, it isn't technically ZPE, but it
+		is treated the same, so for simplicity the variable is still named ZPE
 	"""
 	zero_point_energies = containers.Energies()
 	zpe_sum = 0
@@ -37,11 +45,16 @@ def _calculate_zero_point_energies(program_state):
 	return zero_point_energies, total_zpe
 
 
-def _sample(zero_point_energies, program_state):
+def _sample(zero_point_energies: containers.Energies, program_state: ProgramState) -> List[int]:
 	"""
 	Determine the vibrational excitation quanta numbers.
 
-	Reference: C++ - line 59.
+	Args:
+		zero_point_energies: The zero point energies for each mode
+		program_state: The program state containing temperature and random generator
+
+	Returns:
+		List of vibrational quantum numbers for each mode
 	"""
 	vibrational_quantum_numbers = list()
 
@@ -78,11 +91,22 @@ def _sample(zero_point_energies, program_state):
 	return vibrational_quantum_numbers
 
 
-def _calculate_displacement(zero_point_energies, vibrational_quantum_numbers, program_state):
+def _calculate_displacement(
+	zero_point_energies: containers.Energies, vibrational_quantum_numbers: List[int], program_state: ProgramState
+) -> Tuple[containers.Energies, List[float], containers.Energies]:
 	"""
 	Calculate the displacements (shifts) and vibrational energy per mode.
 
-	Reference: C++ - line 95.
+	Args:
+		zero_point_energies: The zero point energies for each mode
+		vibrational_quantum_numbers: The quantum numbers for each mode
+		program_state: The program state containing frequencies and force constants
+
+	Returns:
+		Tuple containing:
+		- total_mode_energy: Sum of all mode energies
+		- shifts: List of displacement values for each mode
+		- mode_energies: Energy for each mode
 	"""
 	mode_energies = containers.Energies()
 	mode_energies_sum = 0
@@ -352,8 +376,23 @@ def _add_velocities_to_program_state(atomic_velocities, program_state):
 	program_state.velocities.append(velocities)
 
 
-def generate(program_state):
-	"""Sample initial energy (kinetic and potential)."""
+def generate(program_state: ProgramState) -> None:
+	"""Sample initial energy (kinetic and potential).
+
+	Args:
+		program_state: The program state to sample energies for
+
+	Raises:
+		exceptions.InputError: If energy boost maximum is less than zero point energy
+		exceptions.InputError: If frequencies are not set
+		exceptions.InputError: If temperature is negative
+	"""
+	if not program_state.frequencies:
+		raise exceptions.InputError("No frequencies set in program state")
+
+	if program_state.temperature < 0:
+		raise exceptions.InputError("Temperature cannot be negative")
+
 	zero_point_energies, total_zpe = _calculate_zero_point_energies(program_state)
 
 	vibrational_quantum_numbers = _sample(zero_point_energies, program_state)

@@ -1,53 +1,75 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""Parses input file and populates a ProgramState object."""
+"""Parse input file and populate a ProgramState object.
 
-from copy import deepcopy
+This module handles parsing of input files and configuration of program state.
+It validates input sections, parameters, and their values according to defined rules.
+"""
+
 import io
 import os
+from copy import deepcopy
+from typing import IO, Dict, List, Tuple, Union
 
-from milo_1_0_3 import atom
-from milo_1_0_3 import containers
+from milo_1_0_3 import atom, containers, exceptions
 from milo_1_0_3 import enumerations as enums
-from milo_1_0_3 import exceptions
-
-required_sections = (
-	"$job",
-	"$molecule",
-)
-
-no_duplicate_sections = ("$molecule", "$isotope", "$velocities", "$frequency_data", "$gaussian_footer")
-
-mutually_exclusive_sections = (("$velocities", "$frequency_data"),)
-
-required_job_parameters = ("gaussian_header",)
-
-allowed_duplicate_parameters = ("fixed_mode_direction", "fixed_vibrational_quanta")
-
-mutually_exclusive_job_parameters = (
-	("gaussian_header", "qchem_options"),  # as an example
-)
-
-# This is only used to print what defaults are used, not to acutally set the
-# values. The key needs to be the name of parameter used in the input file. For
-# example, use 'program' not 'program_id'. The value is just a text descriptor
-# of the default value.
-parameters_with_defaults = {
-	"max_steps": "no_limit",
-	"phase": "random",
-	"program": "gaussian16",
-	"integration_algorithm": "verlet",
-	"step_size": "1.00 fs",
-	"temperature": "298.15 K",
-	"energy_boost": "off",
-	"oscillator_type": "quasiclassical",
-	"geometry_displacement": "off",
-	"rotational_energy": "off",
-}
+from milo_1_0_3.program_state import ProgramState
 
 
-def parse_input(input_iterable, program_state):
-	"""Populate a ProgramState object from an input file."""
+class InputRules:
+	"""Define rules and defaults for input parsing."""
+
+	REQUIRED_SECTIONS: Tuple[str, ...] = (
+		"$job",
+		"$molecule",
+	)
+
+	NO_DUPLICATE_SECTIONS: Tuple[str, ...] = (
+		"$molecule",
+		"$isotope",
+		"$velocities",
+		"$frequency_data",
+		"$gaussian_footer",
+	)
+
+	MUTUALLY_EXCLUSIVE_SECTIONS: Tuple[Tuple[str, ...], ...] = (("$velocities", "$frequency_data"),)
+
+	REQUIRED_JOB_PARAMETERS: Tuple[str, ...] = ("gaussian_header",)
+
+	ALLOWED_DUPLICATE_PARAMETERS: Tuple[str, ...] = (
+		"fixed_mode_direction",
+		"fixed_vibrational_quanta",
+	)
+
+	MUTUALLY_EXCLUSIVE_JOB_PARAMETERS: Tuple[Tuple[str, ...], ...] = (
+		("gaussian_header", "qchem_options"),  # as an example
+	)
+
+	# Parameters with default values (for display purposes)
+	PARAMETER_DEFAULTS: Dict[str, str] = {
+		"max_steps": "no_limit",
+		"phase": "random",
+		"program": "gaussian16",
+		"integration_algorithm": "verlet",
+		"step_size": "1.00 fs",
+		"temperature": "298.15 K",
+		"energy_boost": "off",
+		"oscillator_type": "quasiclassical",
+		"geometry_displacement": "off",
+		"rotational_energy": "off",
+	}
+
+
+def parse_input(input_iterable: Union[List[str], IO[str]], program_state: ProgramState) -> None:
+	"""Parse input file and populate a ProgramState object.
+
+	Args:
+		input_iterable: Either a list of strings or a file-like object containing input
+		program_state: ProgramState object to populate with parsed data
+
+	Raises:
+		InputError: If input format is invalid or required sections are missing
+	"""
 	# Break input into lines
 	if isinstance(input_iterable, io.IOBase):
 		input = input_iterable.readlines()
@@ -76,17 +98,17 @@ def parse_input(input_iterable, program_state):
 
 	# Check for required sections
 	token_keys = [tokens[0].casefold() for tokens in tokenized_lines]
-	for section in required_sections:
+	for section in InputRules.REQUIRED_SECTIONS:
 		if section not in token_keys:
 			raise exceptions.InputError(f"Could not find {section} section.")
 
 	# Check against duplicate sections
-	for section in no_duplicate_sections:
+	for section in InputRules.NO_DUPLICATE_SECTIONS:
 		if token_keys.count(section) > 1:
 			raise exceptions.InputError(f"Multiple {section} sections.")
 
 	# Check against mutually exclusive sections
-	for m_e_tuple in mutually_exclusive_sections:
+	for m_e_tuple in InputRules.MUTUALLY_EXCLUSIVE_SECTIONS:
 		has_m_e_section = [(section in token_keys) for section in m_e_tuple]
 		if has_m_e_section.count(True) > 1:
 			raise exceptions.InputError(f"{str(m_e_tuple)[1:-1]} are mutually exclusive.")
@@ -143,19 +165,19 @@ def parse_input(input_iterable, program_state):
 	# CHECK LEGALITY OF INPUT
 	# Check for required job parameters
 	job_parameters = [tokens[0].casefold() for tokens in job_tokens]
-	for parameter in required_job_parameters:
+	for parameter in InputRules.REQUIRED_JOB_PARAMETERS:
 		if parameter not in job_parameters:
 			raise exceptions.InputError(f"Could not find the required {parameter} parameter in the $job section.")
 
 	# Check against mutually exclusive job parameters
-	for m_e_tuple in mutually_exclusive_job_parameters:
+	for m_e_tuple in InputRules.MUTUALLY_EXCLUSIVE_JOB_PARAMETERS:
 		has_m_e_parameter = [parameter in job_parameters for parameter in m_e_tuple]
 		if has_m_e_parameter.count(True) > 1:
 			raise exceptions.InputError(f"{str(m_e_tuple)[1:-1]} are mutually exclusive.")
 
 	# Check against duplicate parameters
 	for parameter in job_parameters:
-		if parameter not in allowed_duplicate_parameters and job_parameters.count(parameter) > 1:
+		if parameter not in InputRules.ALLOWED_DUPLICATE_PARAMETERS and job_parameters.count(parameter) > 1:
 			raise exceptions.InputError(f"The '{parameter}' parameter can only be listed once.")
 
 	# POPULATE DATA
@@ -185,8 +207,8 @@ def parse_input(input_iterable, program_state):
 	# Populate program_state with job parameters
 	for tokens in job_tokens:
 		parameter = tokens[0].casefold()
-		if parameter in parameters_with_defaults:
-			del parameters_with_defaults[parameter]
+		if parameter in InputRules.PARAMETER_DEFAULTS:
+			del InputRules.PARAMETER_DEFAULTS[parameter]
 		try:
 			job_function = getattr(JobSection, parameter)
 		except AttributeError:
@@ -248,9 +270,9 @@ def parse_input(input_iterable, program_state):
 
 	# Print results from parsing
 	print("### Default Parameters Being Used --------------------------------")
-	for parameter in parameters_with_defaults:
-		print("  ", parameter, ": ", parameters_with_defaults[parameter], sep="")
-	if len(parameters_with_defaults) == 0:
+	for parameter in InputRules.PARAMETER_DEFAULTS:
+		print("  ", parameter, ": ", InputRules.PARAMETER_DEFAULTS[parameter], sep="")
+	if len(InputRules.PARAMETER_DEFAULTS) == 0:
 		print("  (No defaults used.)")
 	print()
 	print("### Random Seed --------------------------------------------------")
@@ -263,18 +285,7 @@ def parse_input(input_iterable, program_state):
 
 
 class JobSection:
-	"""
-	Namespace for all the parameter functions in $job.
-
-	The name of each function must match the name of the input parameter. These
-	functions are automatically called by:
-	        job_function = getattr(JobSection, tokens[0].casefold())
-	        options = tokens[1] if len(tokens) > 1 else ""
-	        job_function(options, program_state)
-
-	Function parameters:
-	    options - a list containing the input split into the first word and
-	"""
+	"""Handle parsing and validation of job section parameters."""
 
 	@staticmethod
 	def current_step(options, program_state):
@@ -308,8 +319,16 @@ class JobSection:
 			raise exceptions.InputError(err_msg)
 
 	@staticmethod
-	def fixed_mode_direction(options, program_state):
-		"""Add mode direction (1 or -1) to fixed_mode_directions."""
+	def fixed_mode_direction(options: str, program_state: ProgramState) -> None:
+		"""Set fixed mode direction.
+
+		Args:
+			options: String containing mode index and direction (1 or -1)
+			program_state: Program state to update
+
+		Raises:
+			InputError: If options format is invalid
+		"""
 		err_msg = (
 			"Could not interpret parameter 'fixed_mode_direction "
 			f"{options}'. Expected 'fixed_mode_direction n 1', or "
@@ -519,6 +538,7 @@ def main():
 	"""Parse input from stdin to check input file validity."""
 	import os
 	import sys
+
 	from milo_1_0_3 import program_state as ps
 
 	stdout = sys.stdout

@@ -480,13 +480,24 @@ class ForceConstants:
 		self._force_constants = []
 
 	def append(self, force_constant, units):
-		"""Append force constant to the list."""
+		"""Append force constant to the list.
+
+		Args:
+			force_constant: Either a float (converted to (x,x,x) tuple) or a tuple of 3 floats
+			units: Units enum for the force constant
+		"""
 		if units is enums.ForceConstantUnits.NEWTON_PER_METER:
 			factor = 1.0
 		elif units is enums.ForceConstantUnits.MILLIDYNE_PER_ANGSTROM:
 			factor = 0.1  # Convert mdyne/Å to N/m
 		else:
 			raise ValueError(f"Unknown force constant units: {units}")
+
+		# Handle both single float and tuple inputs
+		if isinstance(force_constant, (int, float)):
+			force_constant = (force_constant,) * 3
+
+		# Store in N/m
 		self._force_constants.append(tuple(x * factor for x in force_constant))
 
 	def as_newton_per_meter(self, index=None):
@@ -497,10 +508,11 @@ class ForceConstants:
 
 	def as_millidyne_per_angstrom(self, index=None):
 		"""Return the entire list or specific index in millidyne/angstrom."""
-		factor = sc.FROM_MILLI * sc.DYNE_TO_NEWTON * (1 / sc.ANGSTROM_TO_METER)
+		# Convert from N/m back to mdyne/Å
+		factor = 10.0  # Inverse of the 0.1 factor used in append()
 		if index is None:
-			return [i * factor for i in self._force_constants]
-		return self._force_constants[index] * factor
+			return [tuple(x * factor for x in fc) for fc in self._force_constants]
+		return tuple(x * factor for x in self._force_constants[index])
 
 	def __str__(self):
 		"""Return structure as multiline string."""
