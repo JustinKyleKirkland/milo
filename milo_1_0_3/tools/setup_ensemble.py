@@ -13,10 +13,144 @@ the --no_script flag.
 
 import argparse
 from random import randrange
+from typing import List, TextIO, Union
 
 
-def main():
-	"""Serve as main."""
+def make_input_file(file_name: str, template: List[str], random_seed: int) -> None:
+	"""Create an input file from template with specified random seed.
+
+	Args:
+		file_name: Name of output file to create
+		template: List of template lines to write
+		random_seed: Random seed to insert into template
+	"""
+	with open(file_name, "w") as file:
+		for line in template:
+			if "random_seed_placeholder" in line:
+				line = line.replace("random_seed_placeholder", str(random_seed))
+			file.write(line)
+
+
+def make_submission_script(
+	file_name: str, time_string: str, memory: Union[int, str], procs: Union[int, str], gaussian_string: str
+) -> None:
+	"""Create a SLURM submission script.
+
+	Args:
+		file_name: Name of script file to create
+		time_string: Wall time request in HH:MM:SS format
+		memory: Memory request in GB
+		procs: Number of processors to request
+		gaussian_string: Gaussian version to load (g09/g16)
+	"""
+	with open(file_name, "w") as file:
+		file.write("#!/bin/bash\n")
+		file.write(f"#SBATCH --nodes=1 --ntasks=1 --cpus-per-task={procs}\n")
+		file.write(f"#SBATCH --mem={memory}G\n")
+		file.write(f"#SBATCH -t {time_string}\n")
+		file.write("#SBATCH -C 'avx2'\n")
+		file.write("\n")
+		file.write(f"export JOB_NAME={file_name.split('.')[0]}\n")
+		file.write("\n")
+		file.write("export TEMPORARY_DIR=/tmp/$SLURM_JOB_ID\n")
+		file.write('export JOB_SOURCE_DIR="$SLURM_SUBMIT_DIR"\n')
+		file.write("\n")
+		file.write("function cleanup\n")
+		file.write("{\n")
+		file.write('  echo "---"\n')
+		file.write('  echo "Starting clean up"\n')
+		file.write("\n")
+		file.write('  for file in "$TEMPORARY_DIR"/*.{out,xyz,txt}; do\n')
+		file.write("    [ -e $file ] || continue\n")
+		file.write('    cp -vp $file "$JOB_SOURCE_DIR"\n')
+		file.write("  done\n")
+		file.write("\n")
+		file.write('mkdir -p "$JOB_SOURCE_DIR/com_log_files/"\n')
+		file.write('echo "Archiving .com and .log files"\n')
+		file.write("tar -cf ${JOB_NAME}_${SLURM_JOB_ID}_com_log_files.tar *.{com,log}\n")
+		file.write('cp -v ${JOB_NAME}_${SLURM_JOB_ID}_com_log_files.tar "${JOB_SOURCE_DIR}/com_log_files/"\n')
+		file.write("\n")
+		file.write('  cd "$JOB_SOURCE_DIR"\n')
+		file.write('  rm -fr "$TEMPORARY_DIR"\n')
+		file.write("\n")
+		file.write('  echo "Clean up finished at `date`"\n')
+		file.write("}\n")
+		file.write("\n")
+		file.write('echo "---"\n')
+		file.write('echo "Milo SLURM Diagnostic Information"\n')
+		file.write('echo "---"\n')
+		file.write('echo "Start date and time: `date`"\n')
+		file.write('echo "---"\n')
+		file.write('echo "Nodes assigned:"\n')
+		file.write("cat `/fslapps/fslutils/generate_pbs_nodefile`\n")
+		file.write('echo "---"\n')
+		file.write('echo "Job Source Directory: $JOB_SOURCE_DIR"\n')
+		file.write('echo "Temporary Directory: $TEMPORARY_DIR"\n')
+		file.write("mkdir $TEMPORARY_DIR\n")
+		file.write('cp -v "$JOB_SOURCE_DIR/$JOB_NAME.in" "$TEMPORARY_DIR"\n')
+		file.write('cd "$TEMPORARY_DIR"\n')
+		file.write('echo "---"\n')
+		file.write('echo "Starting Milo run"\n')
+		file.write("\n")
+		file.write("module load python/3.8\n")
+		file.write(f"module load {gaussian_string}\n")
+		file.write('python -m milo_1_0_3 < "$JOB_NAME.in" > ')
+		file.write('"$JOB_NAME.out" &\n')
+		file.write("pid=$!\n")
+		file.write('# Associate the function "cleanup" with the TERM signal, which is usually\n')
+		file.write("# how jobs get killed\n")
+		file.write('trap "kill $pid; cleanup; exit 1" TERM SIGTERM KILL SIGKILL\n')
+		file.write("wait $pid\n")
+		file.write("\n")
+		file.write("cleanup\n")
+		file.write("\n")
+
+
+def process_template_file(template_file: TextIO) -> tuple[List[str], Union[int, str], Union[int, str], str]:
+	"""Process a template input file to extract parameters.
+
+	Args:
+		template_file: Input file to process
+
+	Returns:
+		Tuple containing:
+		- List of template lines with random_seed placeholder
+		- Memory requirement in GB
+		- Number of processors
+		- Gaussian version string
+	"""
+	template = []
+	in_job_section = False
+	random_seed_set = False
+	memory = "memory_placeholder"
+	procs = "processors_placeholder"
+	gaussian_string = "g16"
+
+	for line in template_file:
+		if "$job" in line.casefold():
+			in_job_section = True
+		elif in_job_section and "$end" in line.casefold():
+			in_job_section = False
+			if not random_seed_set:
+				template.append("    random_seed             random_seed_placeholder\n")
+				random_seed_set = True
+		elif in_job_section:
+			if "random_seed" in line.casefold():
+				line = "    random_seed             random_seed_placeholder\n"
+				random_seed_set = True
+			elif "memory" in line.casefold():
+				memory = int(line.split()[1]) + 1
+			elif "processors" in line.casefold():
+				procs = int(line.split()[1])
+			elif "program" in line.casefold() and "gaussian09" in line.casefold():
+				gaussian_string = "g09"
+		template.append(line)
+
+	return template, memory, procs, gaussian_string
+
+
+def main() -> None:
+	"""Create ensemble of input files with different random seeds."""
 	parser = argparse.ArgumentParser(description="Make Milo input files for an ensemble of trajectories.")
 
 	parser.add_argument(
@@ -165,80 +299,6 @@ def main():
 				make_submission_script(
 					name.replace(".in", ".sh"), args.time, forward_memory, forward_procs, gaussian_string
 				)
-
-
-def make_input_file(file_name, template, random_seed):
-	"""Make an input file that matches, but with phase switched."""
-	with open(file_name, "w") as file:
-		for line in template:
-			if "random_seed_placeholder" in line:
-				line = line.replace("random_seed_placeholder", str(random_seed))
-			file.write(line)
-
-
-def make_submission_script(file_name, time_string, memory, procs, gaussian_string):
-	"""Make a submission script given filename and time/job parameters."""
-	with open(file_name, "w") as file:
-		file.write("#!/bin/bash\n")
-		file.write(f"#SBATCH --nodes=1 --ntasks=1 --cpus-per-task={procs}\n")
-		file.write(f"#SBATCH --mem={memory}G\n")
-		file.write(f"#SBATCH -t {time_string}\n")
-		file.write("#SBATCH -C 'avx2'\n")
-		file.write("\n")
-		file.write(f"export JOB_NAME={file_name.split('.')[0]}\n")
-		file.write("\n")
-		file.write("export TEMPORARY_DIR=/tmp/$SLURM_JOB_ID\n")
-		file.write('export JOB_SOURCE_DIR="$SLURM_SUBMIT_DIR"\n')
-		file.write("\n")
-		file.write("function cleanup\n")
-		file.write("{\n")
-		file.write('  echo "---"\n')
-		file.write('  echo "Starting clean up"\n')
-		file.write("\n")
-		file.write('  for file in "$TEMPORARY_DIR"/*.{out,xyz,txt}; do\n')
-		file.write("    [ -e $file ] || continue\n")
-		file.write('    cp -vp $file "$JOB_SOURCE_DIR"\n')
-		file.write("  done\n")
-		file.write("\n")
-		file.write('mkdir -p "$JOB_SOURCE_DIR/com_log_files/"\n')
-		file.write('echo "Archiving .com and .log files"\n')
-		file.write("tar -cf ${JOB_NAME}_${SLURM_JOB_ID}_com_log_files.tar *.{com,log}\n")
-		file.write('cp -v ${JOB_NAME}_${SLURM_JOB_ID}_com_log_files.tar "${JOB_SOURCE_DIR}/com_log_files/"\n')
-		file.write("\n")
-		file.write('  cd "$JOB_SOURCE_DIR"\n')
-		file.write('  rm -fr "$TEMPORARY_DIR"\n')
-		file.write("\n")
-		file.write('  echo "Clean up finished at `date`"\n')
-		file.write("}\n")
-		file.write("\n")
-		file.write('echo "---"\n')
-		file.write('echo "Milo SLURM Diagnostic Information"\n')
-		file.write('echo "---"\n')
-		file.write('echo "Start date and time: `date`"\n')
-		file.write('echo "---"\n')
-		file.write('echo "Nodes assigned:"\n')
-		file.write("cat `/fslapps/fslutils/generate_pbs_nodefile`\n")
-		file.write('echo "---"\n')
-		file.write('echo "Job Source Directory: $JOB_SOURCE_DIR"\n')
-		file.write('echo "Temporary Directory: $TEMPORARY_DIR"\n')
-		file.write("mkdir $TEMPORARY_DIR\n")
-		file.write('cp -v "$JOB_SOURCE_DIR/$JOB_NAME.in" "$TEMPORARY_DIR"\n')
-		file.write('cd "$TEMPORARY_DIR"\n')
-		file.write('echo "---"\n')
-		file.write('echo "Starting Milo run"\n')
-		file.write("\n")
-		file.write("module load python/3.8\n")
-		file.write(f"module load {gaussian_string}\n")
-		file.write('python -m milo_1_0_3 < "$JOB_NAME.in" > ')
-		file.write('"$JOB_NAME.out" &\n')
-		file.write("pid=$!\n")
-		file.write('# Associate the function "cleanup" with the TERM signal, which is usually\n')
-		file.write("# how jobs get killed\n")
-		file.write('trap "kill $pid; cleanup; exit 1" TERM SIGTERM KILL SIGKILL\n')
-		file.write("wait $pid\n")
-		file.write("\n")
-		file.write("cleanup\n")
-		file.write("\n")
 
 
 if __name__ == "__main__":

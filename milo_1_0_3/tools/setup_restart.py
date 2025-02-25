@@ -10,13 +10,21 @@ the --no_script flag.
 import argparse
 import os
 import sys
+from datetime import datetime
+from typing import List, TextIO
 
 from milo_1_0_3 import input_parser
 from milo_1_0_3 import program_state as ps
+from milo_1_0_3.program_state import ProgramState
 
 
-def main():
-	"""Parse frequency file and print to new Milo input."""
+def main() -> None:
+	"""Parse frequency file and create new Milo input for job continuation.
+
+	Raises:
+		FileNotFoundError: If input/output files cannot be accessed
+		ValueError: If input file format is invalid
+	"""
 	parser = argparse.ArgumentParser(
 		description="Make a Milo input file to restart a job from the last completed step."
 	)
@@ -35,12 +43,20 @@ def main():
 		help="New Milo input file. <stdout> by default.",
 	)
 	parser.add_argument("--no_script", action="store_true", help="Stops SLURM submission scripts from being made.")
-	args = parser.parse_args()
 
+	try:
+		args = parser.parse_args()
+		process_restart_file(args.job_to_restart, args.new_input_filename, args.no_script)
+	except (FileNotFoundError, ValueError) as e:
+		print(f"Error: {str(e)}", file=sys.stderr)
+		sys.exit(1)
+
+
+def process_restart_file(job_to_restart: TextIO, new_input_filename: TextIO, no_script: bool) -> None:
 	# Get ### Input File section from output file
 	in_input_section = False
 	old_input = list()
-	for line in args.job_to_restart:
+	for line in job_to_restart:
 		if "### Input File" in line:
 			in_input_section = True
 		elif in_input_section:
@@ -58,13 +74,13 @@ def main():
 	null_output.close()
 
 	# Get random seed
-	for line in args.job_to_restart:
+	for line in job_to_restart:
 		if "### Random Seed" in line:
 			break
-	random_seed = next(args.job_to_restart, "").strip()
+	random_seed = next(job_to_restart, "").strip()
 
 	# Jump to first completed geometry
-	for line in args.job_to_restart:
+	for line in job_to_restart:
 		if "###" in line and "Step" in line:
 			break
 
@@ -75,7 +91,7 @@ def main():
 	completed_velocities = list()
 	completed_step_number = 0
 
-	for line in args.job_to_restart:
+	for line in job_to_restart:
 		if "###" in line and "Step" in line:
 			completed_step_number = int(line.split(":")[0].split()[-1]) - 1
 			completed_coordinates = current_coordinates
@@ -84,29 +100,29 @@ def main():
 			current_velocities = list()
 		elif "Coordinates:" in line:
 			for _ in range(program_state.number_atoms):
-				current_coordinates.append(next(args.job_to_restart, None))
+				current_coordinates.append(next(job_to_restart, None))
 		elif "Velocities:" in line:
 			for _ in range(program_state.number_atoms):
-				current_velocities.append(next(args.job_to_restart, None))
+				current_velocities.append(next(job_to_restart, None))
 
 	# Remove atom labels from velocities section
 	completed_velocities = [line.split(maxsplit=1)[1].rjust(50) for line in completed_velocities]
 
 	# Output
-	print_section(args.new_input_filename, "comment", get_output_comment(args.job_to_restart, completed_step_number))
-	print_section(args.new_input_filename, "job", get_job_section(old_input, completed_step_number, random_seed))
+	print_section(new_input_filename, "comment", get_output_comment(job_to_restart, completed_step_number))
+	print_section(new_input_filename, "job", get_job_section(old_input, completed_step_number, random_seed))
 	print_section(
-		args.new_input_filename,
+		new_input_filename,
 		"molecule",
 		"".join([f"    {program_state.charge} {program_state.spin}\n"] + completed_coordinates),
 	)
-	print_section(args.new_input_filename, "isotope", get_isotope_section(program_state))
-	print_section(args.new_input_filename, "velocities", "".join(completed_velocities))
+	print_section(new_input_filename, "isotope", get_isotope_section(program_state))
+	print_section(new_input_filename, "velocities", "".join(completed_velocities))
 	if program_state.gaussian_footer is not None:
-		print_section(args.new_input_filename, "gaussian_footer", program_state.gaussian_footer)
+		print_section(new_input_filename, "gaussian_footer", program_state.gaussian_footer)
 
 
-def get_job_section(old_input, current_step, random_seed):
+def get_job_section(old_input: List[str], current_step: int, random_seed: str) -> str:
 	"""Create job section."""
 	section = list()
 	section.append(f"    current_step            {current_step}\n")
@@ -126,7 +142,7 @@ def get_job_section(old_input, current_step, random_seed):
 	return "".join(section)
 
 
-def get_isotope_section(program_state):
+def get_isotope_section(program_state: ProgramState) -> str:
 	"""Create isotope section."""
 	section = list()
 	for i in range(program_state.number_atoms):
@@ -134,11 +150,8 @@ def get_isotope_section(program_state):
 	return "".join(section)
 
 
-def get_output_comment(input_iterable, current_step):
+def get_output_comment(input_iterable: TextIO, current_step: int) -> str:
 	"""Return comment with parsed output file name and date of parsing."""
-	from datetime import datetime
-	import os
-
 	line = [f"    Input file to restart Milo job from step {current_step} of "]
 	if input_iterable != sys.stdin:
 		line.append(os.path.basename(input_iterable.name))
@@ -152,7 +165,7 @@ def get_output_comment(input_iterable, current_step):
 	return "".join(line)
 
 
-def print_section(output_iterable, section_name, inside):
+def print_section(output_iterable: TextIO, section_name: str, inside: str) -> None:
 	"""Print a section to output_iterable."""
 	stdout = sys.stdout
 	sys.stdout = output_iterable
