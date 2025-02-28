@@ -8,21 +8,28 @@ corresponding .xyz files containing molecular coordinates from each geometry
 optimization step.
 """
 
-import os
-from typing import List, TextIO
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Iterator, List, TextIO
 
 
-def extract_coordinates(out_file: TextIO) -> List[List[str]]:
+@dataclass
+class CoordinateBlock:
+	"""Container for coordinate block data."""
+
+	lines: List[str]
+
+
+def extract_coordinates(out_file: TextIO) -> Iterator[CoordinateBlock]:
 	"""
-	Extract coordinate blocks from Gaussian output file.
+	Extract coordinate blocks from Gaussian output file using generator pattern.
 
 	Args:
 		out_file: File handle for the Gaussian output file
 
-	Returns:
-		List of coordinate blocks, where each block is a list of coordinate lines
+	Yields:
+		CoordinateBlock objects containing coordinate data
 	"""
-	coordinate_blocks: List[List[str]] = []
 	current_block: List[str] = []
 	in_coordinates = False
 	skip_next = False
@@ -30,38 +37,43 @@ def extract_coordinates(out_file: TextIO) -> List[List[str]]:
 	for line in out_file:
 		if "  Coordinates:" in line:
 			in_coordinates = True
-			skip_next = True  # Skip the next line (column headers)
+			skip_next = True
 			current_block = []
 		elif "  SCF Energy:" in line or "Normal termination." in line:
 			if current_block:
-				coordinate_blocks.append(current_block)
+				yield CoordinateBlock(current_block)
 				current_block = []
 			in_coordinates = False
 		elif in_coordinates:
 			if skip_next:
 				skip_next = False
 				continue
-			if line.strip():  # Only append non-empty lines
-				current_block.append(line.strip())
-
-	return coordinate_blocks
+			if line := line.strip():  # Walrus operator for efficiency
+				current_block.append(line)
 
 
-def write_xyz_file(xyz_path: str, coordinate_blocks: List[List[str]]) -> None:
+def write_xyz_file(xyz_path: str, coordinate_blocks: Iterator[CoordinateBlock]) -> None:
 	"""
-	Write coordinate blocks to XYZ file.
+	Write coordinate blocks to XYZ file efficiently using context manager.
 
 	Args:
 		xyz_path: Path to output XYZ file
-		coordinate_blocks: List of coordinate blocks to write
+		coordinate_blocks: Iterator of coordinate blocks to write
 	"""
-	with open(xyz_path, mode="w") as xyz_file:
-		num_atoms = len(coordinate_blocks[0]) if coordinate_blocks else 0
+	first_block = next(coordinate_blocks, None)
+	if not first_block:
+		return
 
+	num_atoms = len(first_block.lines)
+	with open(xyz_path, mode="w", buffering=8192) as xyz_file:  # Use buffered I/O
+		# Write first block
+		xyz_file.write(f"{num_atoms}\n\n")
+		xyz_file.writelines(f"{line}\n" for line in first_block.lines)
+
+		# Write remaining blocks
 		for block in coordinate_blocks:
 			xyz_file.write(f"{num_atoms}\n\n")
-			for line in block:
-				xyz_file.write(f"{line}\n")
+			xyz_file.writelines(f"{line}\n" for line in block.lines)
 
 
 def process_out_file(out_path: str) -> None:
@@ -71,19 +83,19 @@ def process_out_file(out_path: str) -> None:
 	Args:
 		out_path: Path to Gaussian output file
 	"""
-	xyz_path = out_path[:-4] + ".xyz"  # Replace .out with .xyz
+	xyz_path = Path(out_path).with_suffix(".xyz")
 
-	with open(out_path, mode="r") as out_file:
+	with open(out_path, mode="r", buffering=8192) as out_file:  # Use buffered I/O
 		coordinate_blocks = extract_coordinates(out_file)
-		write_xyz_file(xyz_path, coordinate_blocks)
+		write_xyz_file(str(xyz_path), coordinate_blocks)
 
 
 def main() -> None:
 	"""Convert all Gaussian output files in current directory to XYZ format."""
-	out_files = [f for f in os.listdir(".") if os.path.isfile(f) and f.endswith(".out")]
+	out_files = [f for f in Path(".").glob("*.out") if f.is_file()]
 
 	for out_file in out_files:
-		process_out_file(out_file)
+		process_out_file(str(out_file))
 
 
 if __name__ == "__main__":

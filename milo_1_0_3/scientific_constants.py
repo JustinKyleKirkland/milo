@@ -11,11 +11,11 @@ from typing import Final
 
 # Fundamental Physical Constants
 # ----------------------------
+#: Speed of light (m/s)
+c: Final[float] = 299792458.0  # Exact value per SI definition
+
 #: Planck's constant (J⋅s)
 h: Final[float] = 6.62607015e-34
-
-#: Speed of light (cm/s)
-c: Final[float] = 29979245800
 
 #: Avogadro's number (particles/mol)
 AVOGADROS_NUMBER: Final[float] = 6.02214076e23
@@ -27,29 +27,28 @@ GAS_CONSTANT_KCAL: Final[float] = 0.00198720425864083
 CLASSICAL_SPACING: Final[int] = 2
 
 
-# Metric Prefix Conversions
-# -----------------------
-#: Conversion factor from kilo (×10³)
-FROM_KILO: Final[float] = 1.0e3
-#: Conversion factor to kilo (×10⁻³)
-TO_KILO: Final[float] = 1 / FROM_KILO
+# Base Metric Prefix Conversions
+# ---------------------------
+#: Base conversion factor for metric prefixes (×10³)
+_BASE_KILO: Final[float] = 1.0e3
+_BASE_MILLI: Final[float] = 1.0e-3
+_BASE_CENTI: Final[float] = 1.0e-2
 
-#: Conversion factor to milli (×10³)
-TO_MILLI: Final[float] = 1.0e3
-#: Conversion factor from milli (×10⁻³)
-FROM_MILLI: Final[float] = 1 / TO_MILLI
+# Derived Metric Prefix Conversions
+# ------------------------------
+FROM_KILO: Final[float] = _BASE_KILO
+TO_KILO: Final[float] = _BASE_MILLI
 
-#: Conversion factor to centi (×10²)
-TO_CENTI: Final[float] = 1.0e2
-#: Conversion factor from centi (×10⁻²)
+TO_MILLI: Final[float] = _BASE_KILO
+FROM_MILLI: Final[float] = _BASE_MILLI
+
+TO_CENTI: Final[float] = _BASE_CENTI * 10
 FROM_CENTI: Final[float] = 1 / TO_CENTI
 
 
 # Particle/Mole Conversions
 # -----------------------
-#: Convert from moles to number of particles
 MOLE_TO_PARTICLE: Final[float] = AVOGADROS_NUMBER
-#: Convert from number of particles to moles
 PARTICLE_TO_MOLE: Final[float] = 1 / AVOGADROS_NUMBER
 
 

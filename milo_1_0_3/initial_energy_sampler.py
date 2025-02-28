@@ -3,12 +3,25 @@
 """Generate initial velocities based on frequency data."""
 
 import math
-from typing import List, Tuple
+from functools import lru_cache
+from typing import Dict, List, Tuple
+
+import numpy as np
 
 from milo_1_0_3 import containers, exceptions
 from milo_1_0_3 import enumerations as enums
 from milo_1_0_3 import scientific_constants as sc
 from milo_1_0_3.program_state import ProgramState
+
+
+@lru_cache(maxsize=128)
+def _get_conversion_factors() -> Dict[str, float]:
+	"""Cache commonly used conversion factors."""
+	return {
+		"units_ke": sc.AMU_TO_KG * math.pow(sc.ANGSTROM_TO_METER, 2) * sc.JOULE_TO_KCAL_PER_MOLE,
+		"classical_energy": 0.5 * sc.h * sc.c * sc.CLASSICAL_SPACING,
+		"meter_conversion": sc.ANGSTROM_TO_METER,
+	}
 
 
 def _calculate_zero_point_energies(program_state: ProgramState) -> Tuple[containers.Energies, containers.Energies]:
@@ -29,14 +42,15 @@ def _calculate_zero_point_energies(program_state: ProgramState) -> Tuple[contain
 	"""
 	zero_point_energies = containers.Energies()
 	zpe_sum = 0
+	classical_energy = _get_conversion_factors()["classical_energy"]
 
 	for frequency in program_state.frequencies.as_recip_cm():
-		if frequency < 0:
-			frequency = 2
-		if program_state.oscillator_type == enums.OscillatorType.CLASSICAL:
-			energy = 0.5 * sc.h * sc.c * sc.CLASSICAL_SPACING
-		else:
-			energy = 0.5 * sc.h * sc.c * frequency
+		frequency = max(frequency, 2)  # Replace frequency < 0 with 2
+		energy = (
+			classical_energy
+			if program_state.oscillator_type == enums.OscillatorType.CLASSICAL
+			else 0.5 * sc.h * sc.c * frequency
+		)
 		zero_point_energies.append(energy, enums.EnergyUnits.JOULE)
 		zpe_sum += energy
 
@@ -56,37 +70,29 @@ def _sample(zero_point_energies: containers.Energies, program_state: ProgramStat
 	Returns:
 		List of vibrational quantum numbers for each mode
 	"""
-	vibrational_quantum_numbers = list()
+	if program_state.temperature == 0:
+		return [0] * len(program_state.frequencies)
+
+	vibrational_quantum_numbers = []
+	rt_factor = sc.GAS_CONSTANT_KCAL * program_state.temperature
 
 	for f in range(len(program_state.frequencies)):
-		if program_state.temperature == 0:
-			vibrational_quantum_numbers.append(0)
-			continue
-		else:
-			# zpe_ratio = e^(-2 * zpe / (RT))
-			zpe_ratio = math.exp(
-				(-2 * zero_point_energies.as_kcal_per_mole(f)) / (sc.GAS_CONSTANT_KCAL * program_state.temperature)
-			)
-			if zpe_ratio >= 1:
-				zpe_ratio = 0.99999999999
+		zpe_ratio = math.exp(-2 * zero_point_energies.as_kcal_per_mole(f) / rt_factor)
+		zpe_ratio = min(zpe_ratio, 0.99999999999)
 
-			# c_e_fraction is 'cumulative excitation fraction'
-			c_e_fraction = 1 - zpe_ratio
-			random_number = program_state.random.uniform()
+		c_e_fraction = 1 - zpe_ratio
+		random_number = program_state.random.uniform()
 
-			i = 1
-			while i <= 4000 * zpe_ratio + 2:
-				if random_number > c_e_fraction:
-					c_e_fraction += math.pow(zpe_ratio, i) * (1 - zpe_ratio)
-					i += 1
-				else:
-					break
-			vibrational_quantum_numbers.append(i - 1)
+		i = 1
+		max_iter = int(4000 * zpe_ratio + 2)
+		while i <= max_iter and random_number > c_e_fraction:
+			c_e_fraction += math.pow(zpe_ratio, i) * (1 - zpe_ratio)
+			i += 1
+		vibrational_quantum_numbers.append(i - 1)
 
-	for mode in program_state.fixed_vibrational_quanta:
-		# This needs to rewrite the random calls from above so that the random
-		# number generator will produce the same results for everything else.
-		vibrational_quantum_numbers[mode - 1] = program_state.fixed_vibrational_quanta[mode]
+	# Apply fixed vibrational quanta
+	for mode, quanta in program_state.fixed_vibrational_quanta.items():
+		vibrational_quantum_numbers[mode - 1] = quanta
 
 	return vibrational_quantum_numbers
 
@@ -111,30 +117,33 @@ def _calculate_displacement(
 	mode_energies = containers.Energies()
 	mode_energies_sum = 0
 
-	shifts = list()
+	shifts = []
+	freq_array = np.array(program_state.frequencies.as_recip_cm())
 
-	for f in range(len(program_state.frequencies)):
-		if (
-			program_state.oscillator_type is enums.OscillatorType.QUASICLASSICAL
-			and program_state.frequencies.as_recip_cm(f) > 10
-		):
+	for f in range(len(freq_array)):
+		# Calculate mode energy
+		if program_state.oscillator_type is enums.OscillatorType.QUASICLASSICAL and freq_array[f] > 10:
 			energy = zero_point_energies.as_joules(f) * (2 * vibrational_quantum_numbers[f] + 1)
 		else:
 			energy = zero_point_energies.as_joules(f) * (2 * vibrational_quantum_numbers[f])
+
 		mode_energies.append(energy, enums.EnergyUnits.JOULE)
 		mode_energies_sum += energy
+
+		# Calculate shift
 		max_shift = math.sqrt(
 			2 * mode_energies.as_millidyne_angstrom(f) / program_state.force_constants.as_millidyne_per_angstrom(f)
 		)
 
-		random_weight = 0  # For zero displacement or imaginary/low frequencies
-		if program_state.frequencies.as_recip_cm(f) > 10:
+		random_weight = 0
+		if freq_array[f] > 10:
 			if program_state.geometry_displacement_type is enums.GeometryDisplacement.EDGE_WEIGHTED:
 				random_weight = program_state.random.edge_weighted()
 			elif program_state.geometry_displacement_type is enums.GeometryDisplacement.GAUSSIAN_DISTRIBUTION:
 				random_weight = program_state.random.gaussian()
 			elif program_state.geometry_displacement_type is enums.GeometryDisplacement.UNIFORM:
 				random_weight = 2 * (program_state.random.uniform() - 0.5)
+
 		shifts.append(max_shift * random_weight)
 
 	total_mode_energy = containers.Energies()
@@ -142,7 +151,7 @@ def _calculate_displacement(
 	return total_mode_energy, shifts, mode_energies
 
 
-def _energy_boost(total_mode_energy, program_state):
+def _energy_boost(total_mode_energy: containers.Energies, program_state: ProgramState) -> bool:
 	"""
 	Boost/drop the energy of the system by changing temperature.
 
@@ -152,84 +161,67 @@ def _energy_boost(total_mode_energy, program_state):
 
 	Reference: C++ - line 138.
 	"""
-	if total_mode_energy.as_kcal_per_mole(0) <= program_state.energy_boost_min:
+	energy = total_mode_energy.as_kcal_per_mole(0)
+	if energy <= program_state.energy_boost_min:
 		program_state.temperature += 5.0
 		return True
-	elif total_mode_energy.as_kcal_per_mole(0) >= program_state.energy_boost_max:
+	elif energy >= program_state.energy_boost_max:
 		program_state.temperature -= 2.0
 		return True
 	return False
 
 
-def _geometry_displacement(shifts, program_state):
+def _geometry_displacement(shifts: List[float], program_state: ProgramState) -> None:
 	"""
 	Apply the displacements (shifts) to the coordinates in program_state.
 
 	Referece: C++ - line 167.
 	"""
-	for f in range(len(program_state.frequencies)):
+	structures = program_state.structures[0]
+	mode_displacements = program_state.mode_displacements
+
+	for f, shift in enumerate(shifts):
 		for j in range(program_state.number_atoms):
-			current_x, current_y, current_z = program_state.structures[0].as_angstrom(j)
-			mode_x, mode_y, mode_z = program_state.mode_displacements[f].as_angstrom(j)
-			new_x = current_x + (mode_x * shifts[f])
-			new_y = current_y + (mode_y * shifts[f])
-			new_z = current_z + (mode_z * shifts[f])
-			program_state.structures[0].alter_position(j, new_x, new_y, new_z, enums.DistanceUnits.ANGSTROM)
+			current_pos = structures.as_angstrom(j)
+			mode_pos = mode_displacements[f].as_angstrom(j)
+			new_pos = tuple(c + (m * shift) for c, m in zip(current_pos, mode_pos))
+			structures.alter_position(j, *new_pos, enums.DistanceUnits.ANGSTROM)
 	return
 
 
-def _check_if_mode_pushes_apart(program_state):
+def _check_if_mode_pushes_apart(program_state: ProgramState) -> bool:
 	"""
 	Check if the first mode increases the distance between the phase atoms.
 
 	Reference: C++ line 185.
 	"""
 	# Go from 1-based index to 0-based index
-	atom1_id = program_state.phase[0] - 1
-	atom2_id = program_state.phase[1] - 1
+	atom1_id, atom2_id = program_state.phase[0] - 1, program_state.phase[1] - 1
 
-	atom1_modes = program_state.mode_displacements[0].as_angstrom(atom1_id)
-	atom2_modes = program_state.mode_displacements[0].as_angstrom(atom2_id)
-	atom1_position = program_state.structures[0].as_angstrom(atom1_id)
-	atom2_position = program_state.structures[0].as_angstrom(atom2_id)
+	atom1_modes = np.array(program_state.mode_displacements[0].as_angstrom(atom1_id))
+	atom2_modes = np.array(program_state.mode_displacements[0].as_angstrom(atom2_id))
+	atom1_pos = np.array(program_state.structures[0].as_angstrom(atom1_id))
+	atom2_pos = np.array(program_state.structures[0].as_angstrom(atom2_id))
 
-	before_distance = (
-		pow(atom1_position[0] - atom2_position[0], 2)
-		+ pow(atom1_position[1] - atom2_position[1], 2)
-		+ pow(atom1_position[2] - atom2_position[2], 2)
-	)
+	before_distance = np.sum(np.square(atom1_pos - atom2_pos))
+	atom1_new_pos = atom1_pos + atom1_modes
+	atom2_new_pos = atom2_pos + atom2_modes
+	after_distance = np.sum(np.square(atom1_new_pos - atom2_new_pos))
 
-	atom1_new_position = (
-		atom1_position[0] + atom1_modes[0],
-		atom1_position[1] + atom1_modes[1],
-		atom1_position[2] + atom1_modes[2],
-	)
-	atom2_new_position = (
-		atom2_position[0] + atom2_modes[0],
-		atom2_position[1] + atom2_modes[1],
-		atom2_position[2] + atom2_modes[2],
-	)
-
-	after_distance = (
-		pow(atom1_new_position[0] - atom2_new_position[0], 2)
-		+ pow(atom1_new_position[1] - atom2_new_position[1], 2)
-		+ pow(atom1_new_position[2] - atom2_new_position[2], 2)
-	)
-
-	return after_distance - before_distance > 0
+	return after_distance > before_distance
 
 
-def _calculate_mode_velocities(mode_energy, shift, program_state):
+def _calculate_mode_velocities(
+	mode_energy: containers.Energies, shift: List[float], program_state: ProgramState
+) -> Tuple[List[float], List[int]]:
 	"""
 	Calculate the modal velocity, in a random direction, for each frequency.
 
 	Reference: C++ line 181.
 	"""
-	mode_velocities = list()
-	mode_directions = list()
-
-	#          10^-3      *    10^-2      *    10^10             = 10^5
 	units = sc.FROM_MILLI * sc.FROM_CENTI * sc.METER_TO_ANGSTROM
+	mode_velocities = []
+	mode_directions = []
 
 	for f in range(len(program_state.frequencies)):
 		# kinetic energy units: gram angstrom**2 / s**2
@@ -254,125 +246,107 @@ def _calculate_mode_velocities(mode_energy, shift, program_state):
 			# number generator will give the same results for everything else.
 			direction = program_state.fixed_mode_directions[f + 1]
 		mode_directions.append(direction)
-		mode_velocities.append(
-			direction * math.sqrt(2 * kinetic_energy / (program_state.reduced_masses.as_amu(f) / sc.AVOGADROS_NUMBER))
+		velocity = direction * math.sqrt(
+			2 * kinetic_energy / (program_state.reduced_masses.as_amu(f) / sc.AVOGADROS_NUMBER)
 		)
+		mode_velocities.append(velocity)
 	return mode_velocities, mode_directions
 
 
-def _calculate_atomic_velocities(mode_velocities, program_state):
+def _calculate_atomic_velocities(mode_velocities: List[float], program_state: ProgramState) -> List[List[float]]:
 	"""
 	Calculate atomic velocities from modal velocities.
 
 	Referece: C++ line 230.
 	"""
-	atomic_velocities = [[0, 0, 0] for j in range(program_state.number_atoms)]
-	for f in range(len(program_state.frequencies)):
+	atomic_velocities = np.zeros((program_state.number_atoms, 3))
+
+	for f, velocity in enumerate(mode_velocities):
 		for j in range(program_state.number_atoms):
-			for k in range(3):
-				atomic_velocities[j][k] += program_state.mode_displacements[f].as_angstrom(j)[k] * mode_velocities[f]
-	return atomic_velocities
+			atomic_velocities[j] += np.array(program_state.mode_displacements[f].as_angstrom(j)) * velocity
+
+	return atomic_velocities.tolist()
 
 
-def _calculate_kinetic_energy(atomic_velocities, program_state):
+def _calculate_kinetic_energy(atomic_velocities: List[List[float]], program_state: ProgramState) -> containers.Energies:
 	"""
 	Calculate the total kinetic energy of the system.
 
 	Referece: C++ line - 308
 	"""
-	kinetic_energy_sum = 0
-	units = sc.AMU_TO_KG * math.pow(sc.ANGSTROM_TO_METER, 2) * sc.JOULE_TO_KCAL_PER_MOLE
+	units = _get_conversion_factors()["units_ke"]
+	velocities = np.array(atomic_velocities)
+	masses = np.array([atom.mass for atom in program_state.atoms])
 
-	for j in range(program_state.number_atoms):
-		kinetic_energy_sum += (
-			0.5
-			* program_state.atoms[j].mass
-			* (
-				math.pow(atomic_velocities[j][0], 2)
-				+ math.pow(atomic_velocities[j][1], 2)
-				+ math.pow(atomic_velocities[j][2], 2)
-			)
-			* units
-		)
+	kinetic_energy_sum = 0.5 * np.sum(masses[:, np.newaxis] * np.sum(velocities**2, axis=1)) * units
 
 	kinetic_energy = containers.Energies()
 	kinetic_energy.append(kinetic_energy_sum, enums.EnergyUnits.KCAL_PER_MOLE)
 	return kinetic_energy
 
 
-def _add_rotational_energy(atomic_velocities, program_state):
+def _add_rotational_energy(atomic_velocities: List[List[float]], program_state: ProgramState) -> containers.Energies:
 	"""
 	Calculate and add the rotational energy.
 
 	Reference: C++ line - 251
 	"""
-	rotateX = []
-	rotateY = []
-	rotateZ = []
-	for x, y, z in range(program_state.structures[0].as_angstrom()):
-		rotateX.append([0, (-1 * z), y])
-		rotateY.append([z, 0, (-1 * x)])
-		rotateZ.append([(-1 * y), x, 0])
+	positions = np.array([program_state.structures[0].as_angstrom(i) for i in range(program_state.number_atoms)])
 
-	eRotX, eRotY, eRotZ = 0.0, 0.0, 0.0
+	# Create rotation matrices
+	rotateX = np.zeros((len(positions), 3))
+	rotateY = np.zeros((len(positions), 3))
+	rotateZ = np.zeros((len(positions), 3))
+
+	rotateX[:, 1] = -positions[:, 2]
+	rotateX[:, 2] = positions[:, 1]
+	rotateY[:, 0] = positions[:, 2]
+	rotateY[:, 2] = -positions[:, 0]
+	rotateZ[:, 0] = -positions[:, 1]
+	rotateZ[:, 1] = positions[:, 0]
+
 	step_size = program_state.step_size.as_second()
-	units = sc.AMU_TO_KG * pow(sc.ANGSTROM_TO_METER, 2) * sc.JOULE_TO_KCAL_PER_MOLE
+	units = _get_conversion_factors()["units_ke"]
+	masses = np.array([atom.mass for atom in program_state.atoms])
 
-	for j in range(program_state.number_atoms):
-		for k in range(3):
-			eRotX += 0.5 * program_state.atoms[j].mass * pow(rotateX[j][k], 2) / pow(step_size, 2) * units
-			eRotY += 0.5 * program_state.atoms[j].mass * pow(rotateY[j][k], 2) / pow(step_size, 2) * units
-			eRotZ += 0.5 * program_state.atoms[j].mass * pow(rotateZ[j][k], 2) / pow(step_size, 2) * units
+	# Calculate rotational energies
+	eRot = np.zeros(3)
+	for axis, rotate in enumerate([rotateX, rotateY, rotateZ]):
+		eRot[axis] = np.sum(0.5 * masses[:, np.newaxis] * rotate**2) / step_size**2 * units
 
-	kinetic_rotational_X, kinetic_rotational_Y, kinetic_rotational_Z = 0, 0, 0
-	if eRotX >= 1:
-		kinetic_rotational_X = (
-			math.log(1 - program_state.random.uniform()) * -0.5 * sc.GAS_CONSTANT_KCAL * program_state.temperature
-		)
-	if eRotY >= 1:
-		kinetic_rotational_Y = (
-			math.log(1 - program_state.random.uniform()) * -0.5 * sc.GAS_CONSTANT_KCAL * program_state.temperature
-		)
-	if eRotZ >= 1:
-		kinetic_rotational_Z = (
-			math.log(1 - program_state.random.uniform()) * -0.5 * sc.GAS_CONSTANT_KCAL * program_state.temperature
-		)
+	# Calculate kinetic rotational energies
+	kRot = np.zeros(3)
+	for i, e in enumerate(eRot):
+		if e >= 1:
+			kRot[i] = (
+				math.log(1 - program_state.random.uniform()) * -0.5 * sc.GAS_CONSTANT_KCAL * program_state.temperature
+			)
+
+	signs = np.array([program_state.random.one_or_neg_one() for _ in range(3)])
+	scales = np.sqrt(kRot / np.where(eRot == 0, 1, eRot))
+
+	# Update atomic velocities
+	rotations = [rotateX, rotateY, rotateZ]
+	for i in range(len(atomic_velocities)):
+		for axis in range(3):
+			if eRot[axis] > 0:
+				for k in range(3):
+					atomic_velocities[i][k] += rotations[axis][i][k] * scales[axis] * signs[axis] / step_size
+
 	rotational_kinetic_energy = containers.Energies()
-	rotational_kinetic_energy.append(
-		kinetic_rotational_X + kinetic_rotational_Y + kinetic_rotational_Z, enums.EnergyUnits.KCAL_PER_MOLE
-	)
-
-	signX = program_state.random.one_or_neg_one()
-	signY = program_state.random.one_or_neg_one()
-	signZ = program_state.random.one_or_neg_one()
-
-	scaleX = math.sqrt(kinetic_rotational_X / eRotX)
-	scaleY = math.sqrt(kinetic_rotational_Y / eRotY)
-	scaleZ = math.sqrt(kinetic_rotational_Z / eRotZ)
-
-	for j in range(program_state.number_atoms):
-		for k in range(3):
-			rotateX[j][k] *= scaleX * signX / step_size
-			rotateY[j][k] *= scaleY * signY / step_size
-			rotateZ[j][k] *= scaleZ * signZ / step_size
-	for j in range(program_state.number_atoms):
-		for k in range(3):
-			atomic_velocities[j][k] += rotateX[j][k] + rotateY[j][k] + rotateZ[j][k]
+	rotational_kinetic_energy.append(np.sum(kRot), enums.EnergyUnits.KCAL_PER_MOLE)
 	return rotational_kinetic_energy
 
 
-def _add_velocities_to_program_state(atomic_velocities, program_state):
+def _add_velocities_to_program_state(atomic_velocities: List[List[float]], program_state: ProgramState) -> None:
 	"""
 	Append initial velocities to program_state.
 
 	Referece: C++ line - 318.
 	"""
 	velocities = containers.Velocities()
-	for i in range(len(atomic_velocities)):
-		x = atomic_velocities[i][0]
-		y = atomic_velocities[i][1]
-		z = atomic_velocities[i][2]
-		velocities.append(x, y, z, enums.VelocityUnits.ANGSTROM_PER_SEC)
+	for vel in atomic_velocities:
+		velocities.append(*vel, enums.VelocityUnits.ANGSTROM_PER_SEC)
 	program_state.velocities.append(velocities)
 
 
@@ -393,29 +367,32 @@ def generate(program_state: ProgramState) -> None:
 	if program_state.temperature < 0:
 		raise exceptions.InputError("Temperature cannot be negative")
 
+	# Calculate energies and quantum numbers
 	zero_point_energies, total_zpe = _calculate_zero_point_energies(program_state)
-
 	vibrational_quantum_numbers = _sample(zero_point_energies, program_state)
-
 	total_mode_energy, shifts, mode_energies = _calculate_displacement(
 		zero_point_energies, vibrational_quantum_numbers, program_state
 	)
 
-	# Check energy boost and if needed, re-sample and redo displacements
+	# Energy boost handling
 	print("### Energy Boost -------------------------------------------------")
 	if program_state.energy_boost is enums.EnergyBoost.ON:
 		print("  Energy boost on")
 		print("  Changing temperature and resampling until the vibrational ")
 		print(f"  energy is between {program_state.energy_boost_min} and {program_state.energy_boost_max} kcal/mol.")
 		print()
+
 		if program_state.energy_boost_max < total_zpe.as_kcal_per_mole(0):
 			raise exceptions.InputError("Energy Boost max energy is less than ZPE.")
+
 		print("  Attempt   Vibrational Energy (kcal/mol)   Temperature (K)")
 		print("  ---------------------------------------------------------")
+
 		i = 1
 		print(
 			f"  {i:>7}   {total_mode_energy.as_kcal_per_mole(0):18.6f}              {program_state.temperature:11.2f}"
 		)
+
 		while _energy_boost(total_mode_energy, program_state):
 			i += 1
 			vibrational_quantum_numbers = _sample(zero_point_energies, program_state)
@@ -423,8 +400,7 @@ def generate(program_state: ProgramState) -> None:
 				zero_point_energies, vibrational_quantum_numbers, program_state
 			)
 			print(
-				f"  {i:>7}   {total_mode_energy.as_kcal_per_mole(0):18.6f}"
-				f"              {program_state.temperature:11.2f}"
+				f"  {i:>7}   {total_mode_energy.as_kcal_per_mole(0):18.6f}              {program_state.temperature:11.2f}"
 			)
 		print("  Energy boost criteria met")
 	else:
@@ -443,6 +419,7 @@ def generate(program_state: ProgramState) -> None:
 		print("  starting geometry.")
 	print()
 
+	# Calculate velocities and energies
 	mode_velocities, mode_directions = _calculate_mode_velocities(mode_energies, shifts, program_state)
 
 	print("### Vibrational Quantum Numbers ----------------------------------")
@@ -461,13 +438,12 @@ def generate(program_state: ProgramState) -> None:
 	print()
 
 	print("### Mode Velocities (meters/second) ------------------------------")
+	meter_conversion = _get_conversion_factors()["meter_conversion"]
 	for mode_velocity in mode_velocities:
-		mode_velocity *= sc.ANGSTROM_TO_METER
-		print(f"  {mode_velocity:15.6e}")
+		print(f"  {mode_velocity * meter_conversion:15.6e}")
 	print()
 
 	atomic_velocities = _calculate_atomic_velocities(mode_velocities, program_state)
-
 	vibrational_kinetic_energy = _calculate_kinetic_energy(atomic_velocities, program_state)
 
 	print("### Rotational Energy --------------------------------------------")
@@ -489,6 +465,7 @@ def generate(program_state: ProgramState) -> None:
 		print(f"  {atom.symbol.ljust(2)} {velocity[0]:15.6e} {velocity[1]:15.6e} {velocity[2]:15.6e}")
 	print()
 
+	# Calculate and print energy summary
 	excitation_energy = containers.Energies()
 	excitation_energy.append(
 		total_mode_energy.as_kcal_per_mole(0) - total_zpe.as_kcal_per_mole(0), enums.EnergyUnits.KCAL_PER_MOLE

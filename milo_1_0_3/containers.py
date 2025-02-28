@@ -4,6 +4,8 @@
 
 from typing import List, Optional, Tuple, Union
 
+import numpy as np
+
 from milo_1_0_3 import atom
 from milo_1_0_3 import enumerations as enums
 from milo_1_0_3 import scientific_constants as sc
@@ -248,6 +250,29 @@ class Velocities:
 		"""Return object representation."""
 		return f"<Velocities object with {len(self._velocities)} atoms.>"
 
+	def to_numpy(self) -> np.ndarray:
+		"""Convert velocities to a NumPy array.
+
+		Returns:
+			NumPy array of shape (n, 3) where n is the number of velocities
+		"""
+		return np.array(self._velocities)
+
+	@classmethod
+	def from_numpy(cls, array: np.ndarray) -> "Velocities":
+		"""Create a Velocities instance from a NumPy array.
+
+		Args:
+			array: NumPy array of shape (n, 3) containing velocities in m/s
+
+		Returns:
+			New Velocities instance
+		"""
+		instance = cls()
+		for row in array:
+			instance.append(row[0], row[1], row[2], enums.VelocityUnits.METER_PER_SEC)
+		return instance
+
 
 class Accelerations:
 	"""
@@ -332,6 +357,29 @@ class Accelerations:
 	def __repr__(self):
 		"""Return object representation."""
 		return f"<Accelerations object with {len(self._accelerations)} atoms.>"
+
+	def to_numpy(self) -> np.ndarray:
+		"""Convert accelerations to a NumPy array.
+
+		Returns:
+			NumPy array of shape (n, 3) where n is the number of accelerations
+		"""
+		return np.array(self._accelerations)
+
+	@classmethod
+	def from_numpy(cls, array: np.ndarray) -> "Accelerations":
+		"""Create an Accelerations instance from a NumPy array.
+
+		Args:
+			array: NumPy array of shape (n, 3) containing accelerations in m/s^2
+
+		Returns:
+			New Accelerations instance
+		"""
+		instance = cls()
+		for row in array:
+			instance.append(row[0], row[1], row[2], enums.AccelerationUnits.METER_PER_SEC_SQRD)
+		return instance
 
 
 class Forces:
@@ -475,9 +523,12 @@ class Frequencies:
 class ForceConstants:
 	"""Container for force constant data, stored internally in N/m."""
 
+	__slots__ = ("_force_constants", "_numpy_array")
+
 	def __init__(self):
 		"""Initialize empty force constants list."""
 		self._force_constants = []
+		self._numpy_array = None  # Cache for numpy array representation
 
 	def append(self, force_constant, units):
 		"""Append force constant to the list.
@@ -497,8 +548,9 @@ class ForceConstants:
 		if isinstance(force_constant, (int, float)):
 			force_constant = (force_constant,) * 3
 
-		# Store in N/m
+		# Store in N/m using a tuple for immutability
 		self._force_constants.append(tuple(x * factor for x in force_constant))
+		self._numpy_array = None  # Invalidate cache
 
 	def as_newton_per_meter(self, index=None):
 		"""Return the entire list or specific index in N/m."""
@@ -514,16 +566,50 @@ class ForceConstants:
 			return [tuple(x * factor for x in fc) for fc in self._force_constants]
 		return tuple(x * factor for x in self._force_constants[index])
 
-	def __str__(self):
-		"""Return structure as multiline string."""
-		strings = []
-		for force_constant in self._force_constants:
-			strings.append(f"{force_constant:10.6f}")
-		return "\n".join(strings)
+	def to_numpy(self) -> np.ndarray:
+		"""Convert force constants to a NumPy array.
 
-	def __repr__(self):
+		Returns:
+			NumPy array of shape (n, 3) where n is the number of force constants
+		"""
+		if self._numpy_array is None:
+			self._numpy_array = np.array(self._force_constants, dtype=np.float64)
+		return self._numpy_array
+
+	@classmethod
+	def from_numpy(cls, array: np.ndarray) -> "ForceConstants":
+		"""Create a ForceConstants instance from a NumPy array.
+
+		Args:
+			array: NumPy array of shape (n, 3) containing force constants in N/m
+
+		Returns:
+			New ForceConstants instance
+		"""
+		instance = cls()
+		for row in array:
+			instance.append(tuple(row), enums.ForceConstantUnits.NEWTON_PER_METER)
+		return instance
+
+	def __str__(self) -> str:
+		"""Return structure as multiline string."""
+		return "\n".join(f"{fc[0]:10.6f} {fc[1]:10.6f} {fc[2]:10.6f}" for fc in self._force_constants)
+
+	def __repr__(self) -> str:
 		"""Return object representation."""
 		return f"<ForceConstants object with {len(self._force_constants)} force constants.>"
+
+	def __len__(self) -> int:
+		"""Return number of force constants."""
+		return len(self._force_constants)
+
+	def __getitem__(self, index):
+		"""Get force constant at index."""
+		return self._force_constants[index]
+
+	def __iter__(self):
+		"""Iterate over force constants."""
+		return iter(self._force_constants)
 
 
 class Masses:

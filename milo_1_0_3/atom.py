@@ -510,10 +510,15 @@ class Atom:
 		mass (float): Isotopic mass in atomic mass units (amu)
 	"""
 
+	__slots__ = ("_symbol", "_atomic_number", "_mass_number", "_mass")
+
 	# Add class variables for data access
 	default_from_symbol: ClassVar[Dict[str, Tuple[int, int, float]]] = {**default_from_symbol, **special_isotopes}
 	default_from_number: ClassVar[Dict[int, Tuple[str, int, float]]] = default_from_number
 	isotope_data: ClassVar[Dict[Tuple[str, int], float]] = isotope_data
+
+	# Cache for title-cased symbols
+	_symbol_cache: ClassVar[Dict[str, str]] = {}
 
 	def __init__(self, symbol: str, atomic_number: int, mass_number: int, mass: float) -> None:
 		"""Initialize an atom with its fundamental properties."""
@@ -522,10 +527,18 @@ class Atom:
 		if not symbol.strip():
 			raise ValueError("Symbol cannot be empty")
 
-		self._symbol = symbol.title()
+		# Use cached title-cased symbol or create new one
+		self._symbol = self._get_title_symbol(symbol)
 		self._atomic_number = atomic_number
 		self._mass_number = mass_number
 		self._mass = float(mass)
+
+	@classmethod
+	def _get_title_symbol(cls, symbol: str) -> str:
+		"""Get or create cached title-cased symbol."""
+		if symbol not in cls._symbol_cache:
+			cls._symbol_cache[symbol] = symbol.title()
+		return cls._symbol_cache[symbol]
 
 	@property
 	def symbol(self) -> str:
@@ -567,18 +580,18 @@ class Atom:
 		Returns:
 			Atom: New atom instance with properties of the specified isotope
 		"""
-		symbol = symbol.title()
-		atomic_number = cls.default_from_symbol[symbol][0]
+		titled_symbol = cls._get_title_symbol(symbol)
+		atomic_number = cls.default_from_symbol[titled_symbol][0]
 
 		# Try to get mass from isotope data, fall back to default if not found
 		try:
-			mass = cls.isotope_data[(symbol, mass_number)]
+			mass = cls.isotope_data[(titled_symbol, mass_number)]
 		except KeyError:
 			# Use default mass if isotope not found
-			_, default_mass_number, mass = cls.default_from_symbol[symbol]
+			_, default_mass_number, mass = cls.default_from_symbol[titled_symbol]
 			mass_number = default_mass_number
 
-		return cls(symbol, atomic_number, mass_number, mass)
+		return cls(titled_symbol, atomic_number, mass_number, mass)
 
 	@classmethod
 	def from_symbol(cls, symbol: str) -> "Atom":
@@ -591,8 +604,9 @@ class Atom:
 		Returns:
 			Atom: New atom instance with properties of the most abundant isotope
 		"""
-		atomic_number, mass_number, mass = cls.default_from_symbol[symbol.title()]
-		return cls(symbol, atomic_number, mass_number, mass)
+		titled_symbol = cls._get_title_symbol(symbol)
+		atomic_number, mass_number, mass = cls.default_from_symbol[titled_symbol]
+		return cls(titled_symbol, atomic_number, mass_number, mass)
 
 	@classmethod
 	def from_atomic_number(cls, atomic_number: int) -> "Atom":
@@ -621,22 +635,26 @@ class Atom:
 		If given a mass number, tries to find the corresponding exact mass
 		from isotope_data. If not found, uses the mass number as the mass.
 		"""
-		mass_str = str(mass_string)
+		if isinstance(mass_string, (int, float)):
+			mass_str = str(mass_string)
+		else:
+			mass_str = mass_string
 
 		if "." in mass_str:
 			self.mass = float(mass_str)
-			self.mass_number = int(round(self.mass))
+			self.mass_number = round(self.mass)
 		else:
+			mass_num = int(mass_str)
 			try:
-				self.mass_number = int(mass_str)
-				self.mass = self.isotope_data[(self.symbol, self.mass_number)]
+				self.mass = self.isotope_data[(self.symbol, mass_num)]
+				self.mass_number = mass_num
 			except KeyError:
-				self.mass_number = int(mass_str)
-				self.mass = float(mass_str)
+				self.mass_number = mass_num
+				self.mass = float(mass_num)
 
 	def __str__(self) -> str:
 		"""Return string representation."""
-		return f"{self.symbol:2} {self.mass:11.7f} amu"
+		return f"{self._symbol:2} {self._mass:11.7f} amu"
 
 	def __repr__(self) -> str:
 		"""
@@ -646,6 +664,6 @@ class Atom:
 			str: String containing all atom properties
 		"""
 		return (
-			f"Atom(symbol='{self.symbol}', atomic_number={self.atomic_number}, "
-			f"mass_number={self.mass_number}, mass={self.mass})"
+			f"Atom(symbol='{self._symbol}', atomic_number={self._atomic_number}, "
+			f"mass_number={self._mass_number}, mass={self._mass})"
 		)

@@ -26,6 +26,7 @@ build/
 
 # Logs and databases
 *.log
+*.com
 *.sqlite
 *.db
 

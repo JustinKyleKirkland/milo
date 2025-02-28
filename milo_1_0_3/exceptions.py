@@ -10,6 +10,8 @@ to provide more specific error handling and clearer error messages.
 class MiloError(Exception):
 	"""Base class for all Milo-specific exceptions."""
 
+	__slots__ = ("message",)
+
 	def __init__(self, message: str) -> None:
 		"""Create an exception with given message.
 
@@ -27,7 +29,7 @@ class ElectronicStructureProgramError(MiloError):
 	results from electronic structure programs like Gaussian.
 	"""
 
-	pass
+	__slots__ = ()
 
 
 class InputError(MiloError):
@@ -37,4 +39,4 @@ class InputError(MiloError):
 	such as missing required parameters or invalid values.
 	"""
 
-	pass
+	__slots__ = ()

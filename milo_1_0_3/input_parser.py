@@ -9,7 +9,8 @@ It validates input sections, parameters, and their values according to defined r
 import io
 import os
 from copy import deepcopy
-from typing import IO, Dict, List, Tuple, Union
+from functools import lru_cache
+from typing import IO, Dict, List, Set, Tuple, Union
 
 from milo_1_0_3 import atom, containers, exceptions
 from milo_1_0_3 import enumerations as enums
@@ -19,30 +20,30 @@ from milo_1_0_3.program_state import ProgramState
 class InputRules:
 	"""Define rules and defaults for input parsing."""
 
-	REQUIRED_SECTIONS: Tuple[str, ...] = (
+	REQUIRED_SECTIONS: Set[str] = {
 		"$job",
 		"$molecule",
-	)
+	}
 
-	NO_DUPLICATE_SECTIONS: Tuple[str, ...] = (
+	NO_DUPLICATE_SECTIONS: Set[str] = {
 		"$molecule",
 		"$isotope",
 		"$velocities",
 		"$frequency_data",
 		"$gaussian_footer",
-	)
+	}
 
-	MUTUALLY_EXCLUSIVE_SECTIONS: Tuple[Tuple[str, ...], ...] = (("$velocities", "$frequency_data"),)
+	MUTUALLY_EXCLUSIVE_SECTIONS: Tuple[Set[str], ...] = ({"$velocities", "$frequency_data"},)
 
-	REQUIRED_JOB_PARAMETERS: Tuple[str, ...] = ("gaussian_header",)
+	REQUIRED_JOB_PARAMETERS: Set[str] = {"gaussian_header"}
 
-	ALLOWED_DUPLICATE_PARAMETERS: Tuple[str, ...] = (
+	ALLOWED_DUPLICATE_PARAMETERS: Set[str] = {
 		"fixed_mode_direction",
 		"fixed_vibrational_quanta",
-	)
+	}
 
-	MUTUALLY_EXCLUSIVE_JOB_PARAMETERS: Tuple[Tuple[str, ...], ...] = (
-		("gaussian_header", "qchem_options"),  # as an example
+	MUTUALLY_EXCLUSIVE_JOB_PARAMETERS: Tuple[Set[str], ...] = (
+		{"gaussian_header", "qchem_options"},  # as an example
 	)
 
 	# Parameters with default values (for display purposes)
@@ -60,6 +61,127 @@ class InputRules:
 	}
 
 
+def tokenize_input(input_lines: List[str]) -> List[List[str]]:
+	"""Tokenize input lines efficiently.
+
+	Args:
+		input_lines: List of input file lines
+
+	Returns:
+		List of tokenized lines
+	"""
+	return [line.split(maxsplit=1) for line in (line.split("#", maxsplit=1)[0].strip() for line in input_lines) if line]
+
+
+@lru_cache(maxsize=128)
+def get_section_tokens(tokenized_lines: Tuple[Tuple[str, ...], ...], section: str) -> List[List[str]]:
+	"""Extract tokens for a specific section.
+
+	Args:
+		tokenized_lines: Tuple of tokenized lines
+		section: Section identifier
+
+	Returns:
+		List of tokens for the section
+	"""
+	tokens = []
+	in_section = False
+
+	for line in tokenized_lines:
+		if not line:
+			continue
+
+		if line[0].casefold() == section:
+			in_section = True
+			continue
+		elif line[0].casefold() == "$end":
+			in_section = False
+			continue
+
+		if in_section:
+			tokens.append(list(line))
+
+	return tokens
+
+
+def validate_sections(token_keys: List[str]) -> None:
+	"""Validate section requirements and constraints.
+
+	Args:
+		token_keys: List of section identifiers
+
+	Raises:
+		InputError: If validation fails
+	"""
+	# Check required sections
+	missing = InputRules.REQUIRED_SECTIONS - set(token_keys)
+	if missing:
+		raise exceptions.InputError(f"Could not find {missing.pop()} section.")
+
+	# Check duplicate sections
+	for section in InputRules.NO_DUPLICATE_SECTIONS:
+		if token_keys.count(section) > 1:
+			raise exceptions.InputError(f"Multiple {section} sections.")
+
+	# Check mutually exclusive sections
+	for m_e_set in InputRules.MUTUALLY_EXCLUSIVE_SECTIONS:
+		if len(m_e_set.intersection(token_keys)) > 1:
+			raise exceptions.InputError(f"{str(tuple(m_e_set))[1:-1]} are mutually exclusive.")
+
+
+def validate_job_parameters(job_parameters: List[str]) -> None:
+	"""Validate job parameter requirements and constraints.
+
+	Args:
+		job_parameters: List of job parameter names
+
+	Raises:
+		InputError: If validation fails
+	"""
+	# Check required parameters
+	missing = InputRules.REQUIRED_JOB_PARAMETERS - set(job_parameters)
+	if missing:
+		raise exceptions.InputError(f"Could not find the required {missing.pop()} parameter in the $job section.")
+
+	# Check mutually exclusive parameters
+	for m_e_set in InputRules.MUTUALLY_EXCLUSIVE_JOB_PARAMETERS:
+		if len(m_e_set.intersection(job_parameters)) > 1:
+			raise exceptions.InputError(f"{str(tuple(m_e_set))[1:-1]} are mutually exclusive.")
+
+	# Check duplicate parameters
+	for param in set(job_parameters) - InputRules.ALLOWED_DUPLICATE_PARAMETERS:
+		if job_parameters.count(param) > 1:
+			raise exceptions.InputError(f"The '{param}' parameter can only be listed once.")
+
+
+def parse_molecule_data(molecule_tokens: List[List[str]], program_state: ProgramState) -> None:
+	"""Parse molecule section data.
+
+	Args:
+		molecule_tokens: List of molecule section tokens
+		program_state: ProgramState to update
+
+	Raises:
+		InputError: If parsing fails
+	"""
+	try:
+		charge_and_spin = molecule_tokens.pop(0)
+		program_state.charge = int(charge_and_spin[0])
+		program_state.spin = int(charge_and_spin[1])
+	except (IndexError, ValueError):
+		raise exceptions.InputError("Could not find charge and/or spin multiplicity in the $molecule section.")
+
+	program_state.number_atoms = len(molecule_tokens)
+
+	for atom_token in molecule_tokens:
+		try:
+			program_state.atoms.append(atom.Atom.from_symbol(atom_token[0]))
+			x, y, z = map(float, atom_token[1].split())
+			program_state.input_structure.append(x, y, z, enums.DistanceUnits.ANGSTROM)
+		except (IndexError, KeyError, ValueError):
+			raise exceptions.InputError(f"Could not interpret '{'  '.join(atom_token)}' in the $molecule section.")
+
+
 def parse_input(input_iterable: Union[List[str], IO[str]], program_state: ProgramState) -> None:
 	"""Parse input file and populate a ProgramState object.
 
@@ -70,141 +192,48 @@ def parse_input(input_iterable: Union[List[str], IO[str]], program_state: Progra
 	Raises:
 		InputError: If input format is invalid or required sections are missing
 	"""
-	# Break input into lines
-	if isinstance(input_iterable, io.IOBase):
-		input = input_iterable.readlines()
-		print("IOBase recognized")
-	elif isinstance(input_iterable, list):
-		input = input_iterable
-	else:
+	# Convert input to lines
+	input_lines = input_iterable.readlines() if isinstance(input_iterable, io.IOBase) else input_iterable
+	if not isinstance(input_lines, list):
 		raise exceptions.InputError("Unrecognized input iterable.")
 
-	# Print entire input file
+	# Print input file
 	print("### Input File ---------------------------------------------------")
-	print("".join(input))
+	print("".join(input_lines))
 	print()
 
-	# TOKENIZE
-	# Example - input: ["$job", "  parameter a b c # comment", "$end"]
-	#         - tokenized_lines: [["$job"], ["parameter", "a b c"], ["$end"]]
-	# Remove in-line comments
-	tokenized_lines = [line.split("#", maxsplit=1)[0] for line in input]
-	# Strip whitespace
-	tokenized_lines = [line.strip() for line in tokenized_lines]
-	# Removes blank lines
-	tokenized_lines = [line for line in tokenized_lines if line]
-	# Splits line into first word and rest
-	tokenized_lines = [line.split(maxsplit=1) for line in tokenized_lines]
-
-	# Check for required sections
+	# Tokenize input
+	tokenized_lines = tokenize_input(input_lines)
 	token_keys = [tokens[0].casefold() for tokens in tokenized_lines]
-	for section in InputRules.REQUIRED_SECTIONS:
-		if section not in token_keys:
-			raise exceptions.InputError(f"Could not find {section} section.")
 
-	# Check against duplicate sections
-	for section in InputRules.NO_DUPLICATE_SECTIONS:
-		if token_keys.count(section) > 1:
-			raise exceptions.InputError(f"Multiple {section} sections.")
+	# Validate sections
+	validate_sections(token_keys)
 
-	# Check against mutually exclusive sections
-	for m_e_tuple in InputRules.MUTUALLY_EXCLUSIVE_SECTIONS:
-		has_m_e_section = [(section in token_keys) for section in m_e_tuple]
-		if has_m_e_section.count(True) > 1:
-			raise exceptions.InputError(f"{str(m_e_tuple)[1:-1]} are mutually exclusive.")
+	# Extract section tokens
+	job_tokens = get_section_tokens(tuple(tuple(line) for line in tokenized_lines), "$job")
+	molecule_tokens = get_section_tokens(tuple(tuple(line) for line in tokenized_lines), "$molecule")
+	isotope_tokens = get_section_tokens(tuple(tuple(line) for line in tokenized_lines), "$isotope")
+	velocities_tokens = get_section_tokens(tuple(tuple(line) for line in tokenized_lines), "$velocities")
+	frequency_data_tokens = get_section_tokens(tuple(tuple(line) for line in tokenized_lines), "$frequency_data")
 
-	# Break into different sections and remove block comments
-	tokenized_lines_it = iter(tokenized_lines)
-
-	job_tokens = list()
-	molecule_tokens = list()
-	isotope_tokens = list()
-	velocities_tokens = list()
-	frequency_data_tokens = list()
-
-	for tokens in tokenized_lines_it:
-		if tokens[0].casefold() == "$comment":
-			while tokens[0].casefold() != "$end" and tokens is not None:
-				tokens = next(tokenized_lines_it, None)
-
-		elif tokens[0].casefold() == "$job":
-			tokens = next(tokenized_lines_it, None)  # Advance past '$job'
-			while tokens[0].casefold() != "$end" and tokens is not None:
-				job_tokens.append(tokens)
-				tokens = next(tokenized_lines_it, None)
-
-		elif tokens[0].casefold() == "$molecule":
-			tokens = next(tokenized_lines_it, None)  # Advance past '$molecule'
-			while tokens[0].casefold() != "$end" and tokens is not None:
-				molecule_tokens.append(tokens)
-				tokens = next(tokenized_lines_it, None)
-
-		elif tokens[0].casefold() == "$isotope":
-			tokens = next(tokenized_lines_it, None)  # Advance past '$isotope'
-			while tokens[0].casefold() != "$end" and tokens is not None:
-				isotope_tokens.append(tokens)
-				tokens = next(tokenized_lines_it, None)
-
-		elif tokens[0].casefold() == "$velocities":
-			tokens = next(tokenized_lines_it, None)
-			while tokens[0].casefold() != "$end" and tokens is not None:
-				velocities_tokens.append(tokens)
-				tokens = next(tokenized_lines_it, None)
-
-		elif tokens[0].casefold() == "$frequency_data":
-			tokens = next(tokenized_lines_it, None)
-			while tokens[0].casefold() != "$end" and tokens is not None:
-				frequency_data_tokens.append(tokens)
-				tokens = next(tokenized_lines_it, None)
-
-		elif "$" in tokens[0].casefold() and (
-			"$gaussian_footer" != tokens[0].casefold() and "$end" != tokens[0].casefold()
-		):
-			raise exceptions.InputError(f"Could not interpret {tokens[0]} section.")
-
-	# CHECK LEGALITY OF INPUT
-	# Check for required job parameters
+	# Validate and process job parameters
 	job_parameters = [tokens[0].casefold() for tokens in job_tokens]
-	for parameter in InputRules.REQUIRED_JOB_PARAMETERS:
-		if parameter not in job_parameters:
-			raise exceptions.InputError(f"Could not find the required {parameter} parameter in the $job section.")
+	validate_job_parameters(job_parameters)
 
-	# Check against mutually exclusive job parameters
-	for m_e_tuple in InputRules.MUTUALLY_EXCLUSIVE_JOB_PARAMETERS:
-		has_m_e_parameter = [parameter in job_parameters for parameter in m_e_tuple]
-		if has_m_e_parameter.count(True) > 1:
-			raise exceptions.InputError(f"{str(m_e_tuple)[1:-1]} are mutually exclusive.")
+	# Parse molecule data
+	parse_molecule_data(molecule_tokens, program_state)
 
-	# Check against duplicate parameters
-	for parameter in job_parameters:
-		if parameter not in InputRules.ALLOWED_DUPLICATE_PARAMETERS and job_parameters.count(parameter) > 1:
-			raise exceptions.InputError(f"The '{parameter}' parameter can only be listed once.")
-
-	# POPULATE DATA
-	# Populate program_state with data from $molecule and $isotope
-	try:
-		charge_and_spin = molecule_tokens.pop(0)
-		program_state.charge = int(charge_and_spin[0])
-		program_state.spin = int(charge_and_spin[1])
-	except (IndexError, ValueError):
-		raise exceptions.InputError("Could not find charge and/or spin multiplicity in the $molecule section.")
-	program_state.number_atoms = len(molecule_tokens)
-	for atom_token in molecule_tokens:
-		try:
-			program_state.atoms.append(atom.Atom.from_symbol(atom_token[0]))
-			x, y, z = atom_token[1].split()
-			program_state.input_structure.append(float(x), float(y), float(z), enums.DistanceUnits.ANGSTROM)
-		except (IndexError, KeyError, ValueError):
-			raise exceptions.InputError(f"Could not interpret '{'  '.join(atom_token)}' in the $molecule section.")
+	# Process isotope data
 	for mass_token in isotope_tokens:
 		try:
-			index = int(mass_token[0]) - 1  # '- 1' to bring to 0-based index
+			index = int(mass_token[0]) - 1
 			program_state.atoms[index].change_mass(mass_token[1])
 		except (IndexError, KeyError):
 			raise exceptions.InputError(f"Could not interpret '{'  '.join(mass_token)}' in the $isotope section.")
+
 	program_state.structures.append(deepcopy(program_state.input_structure))
 
-	# Populate program_state with job parameters
+	# Process job parameters
 	for tokens in job_tokens:
 		parameter = tokens[0].casefold()
 		if parameter in InputRules.PARAMETER_DEFAULTS:
@@ -216,63 +245,64 @@ def parse_input(input_iterable: Union[List[str], IO[str]], program_state: Progra
 		options = tokens[1] if len(tokens) > 1 else ""
 		job_function(options, program_state)
 
-	# Populate gaussian_footer from $gaussian_footer section
-	# This is done from the raw input, so comments won't be taken out
+	# Process gaussian footer
 	if "$gaussian_footer" in token_keys:
 		in_section = False
-		for i, line in enumerate(input):
+		footer_lines = []
+		for line in input_lines:
 			if "$gaussian_footer" in line:
 				in_section = True
-				start_index = i + 1
 			elif in_section and "$end" in line:
-				end_index = i
 				break
-		program_state.gaussian_footer = "".join(input[start_index:end_index])
+			elif in_section:
+				footer_lines.append(line)
+		program_state.gaussian_footer = "".join(footer_lines)
 
-	# Populate program_state with frequency data
+	# Process frequency data
 	try:
 		for frequency_token in frequency_data_tokens:
 			program_state.frequencies.append(float(frequency_token[0]), enums.FrequencyUnits.RECIP_CM)
 			data = frequency_token[1].split()
+
 			reduced_mass = float(data.pop(0))
 			program_state.reduced_masses.append(reduced_mass, enums.MassUnits.AMU)
+
 			force_constant = float(data.pop(0))
 			program_state.force_constants.append(force_constant, enums.ForceConstantUnits.MILLIDYNE_PER_ANGSTROM)
+
 			current_displacements = containers.Positions()
 			for _ in range(program_state.number_atoms):
-				x = float(data.pop(0))
-				y = float(data.pop(0))
-				z = float(data.pop(0))
+				x, y, z = map(float, (data.pop(0) for _ in range(3)))
 				current_displacements.append(x, y, z, enums.DistanceUnits.ANGSTROM)
 			program_state.mode_displacements.append(current_displacements)
 	except (IndexError, ValueError):
-		raise exceptions.InputError("Could not interpret $frequency_datasection.")
+		raise exceptions.InputError("Could not interpret $frequency_data section.")
 
-	# Populate program_state with velocity data
+	# Process velocity data
 	if "$velocities" in token_keys:
 		program_state.velocities.append(containers.Velocities())
 		try:
 			for velocities_token in velocities_tokens:
 				x = float(velocities_token[0])
-				y, z = [float(component) for component in velocities_token[1].split()]
+				y, z = map(float, velocities_token[1].split())
 				program_state.velocities[0].append(x, y, z, enums.VelocityUnits.METER_PER_SEC)
 		except (IndexError, ValueError):
 			raise exceptions.InputError("Could not interpret $velocities section.")
 		if len(velocities_tokens) != program_state.number_atoms:
 			raise exceptions.InputError("Number of atoms in $velocities and $molecule sections does not match.")
 
-	# Pull job name from output file name
+	# Set job name
 	try:
 		name = os.readlink("/proc/self/fd/1").split("/")[-1].split(".")[0]
 	except FileNotFoundError:
 		name = "MiloJob"
 	program_state.job_name = name
 
-	# Print results from parsing
+	# Print parsing results
 	print("### Default Parameters Being Used --------------------------------")
-	for parameter in InputRules.PARAMETER_DEFAULTS:
-		print("  ", parameter, ": ", InputRules.PARAMETER_DEFAULTS[parameter], sep="")
-	if len(InputRules.PARAMETER_DEFAULTS) == 0:
+	for parameter, value in InputRules.PARAMETER_DEFAULTS.items():
+		print(f"  {parameter}: {value}")
+	if not InputRules.PARAMETER_DEFAULTS:
 		print("  (No defaults used.)")
 	print()
 	print("### Random Seed --------------------------------------------------")

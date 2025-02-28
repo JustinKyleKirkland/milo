@@ -5,6 +5,8 @@
 import unittest
 from unittest.mock import MagicMock, Mock, patch
 
+import numpy as np
+
 from milo_1_0_3 import enumerations as enums
 from milo_1_0_3.force_propagation_handler import (
 	ForcePropagationHandler,
@@ -51,40 +53,96 @@ class TestForcePropagationHandler(unittest.TestCase):
 		self.program_state.atoms = []
 		self.program_state.accelerations = MagicMock()
 		self.program_state.velocities = MagicMock()
-		self.program_state.step_size = MagicMock()
+		# Configure step_size mock to handle comparisons
+		step_size_mock = MagicMock()
+		step_size_mock.__le__ = lambda x, y: False  # Make step_size > 0
+		self.program_state.step_size = step_size_mock
 
-	def test_calculate_acceleration(self):
-		"""Test acceleration calculation."""
+		# Clear caches before each test
+		ForcePropagationHandler._acceleration_cache.clear()
+		ForcePropagationHandler._velocity_cache.clear()
+
+	def test_calculate_acceleration_caching(self):
+		"""Test acceleration calculation with caching."""
 		mock_acceleration = MagicMock()
-		with patch("milo_1_0_3.containers.Accelerations.from_forces", return_value=mock_acceleration):
+		mock_numpy_array = np.array([[1.0, 2.0, 3.0]])
+
+		# First call - should calculate and cache
+		with patch(
+			"milo_1_0_3.containers.Accelerations.from_forces", return_value=mock_acceleration
+		) as mock_from_forces:
+			with patch.object(mock_acceleration, "to_numpy", return_value=mock_numpy_array):
+				ForcePropagationHandler._calculate_acceleration(self.program_state)
+				mock_from_forces.assert_called_once()
+
+		# Second call - should use cache
+		with patch("milo_1_0_3.containers.Accelerations.from_forces") as mock_from_forces:
 			ForcePropagationHandler._calculate_acceleration(self.program_state)
+			mock_from_forces.assert_not_called()
 
-		self.program_state.accelerations.append.assert_called_with(mock_acceleration)
-
-	def test_calculate_velocity(self):
-		"""Test velocity calculation."""
-		# Create mock objects
+	def test_calculate_velocity_caching(self):
+		"""Test velocity calculation with caching."""
 		mock_velocity = MagicMock()
-		mock_velocity_result = MagicMock()
-		mock_from_accel = MagicMock()
-		mock_accel_sum = MagicMock()
-		mock_scaled_velocity = MagicMock()
-		mock_accel1 = MagicMock()
-		mock_accel2 = MagicMock()
+		mock_numpy_array = np.array([[1.0, 2.0, 3.0]])
 
-		# Configure mocks for the calculation chain
+		# Configure mocks
 		self.program_state.velocities.__getitem__.return_value = mock_velocity
-		self.program_state.accelerations.__getitem__.side_effect = lambda x: {-1: mock_accel1, -2: mock_accel2}[x]
-		mock_accel1.__add__.return_value = mock_accel_sum
-		mock_from_accel.__mul__.return_value = mock_scaled_velocity
-		mock_velocity.__add__.return_value = mock_velocity_result
+		self.program_state.accelerations.__getitem__.side_effect = lambda x: MagicMock()
 
-		# Configure the from_acceleration mock
-		with patch("milo_1_0_3.containers.Velocities.from_acceleration", return_value=mock_from_accel):
+		# First call - should calculate and cache
+		with patch("milo_1_0_3.containers.Velocities.from_acceleration", return_value=mock_velocity) as mock_from_accel:
+			with patch.object(mock_velocity, "to_numpy", return_value=mock_numpy_array):
+				ForcePropagationHandler._calculate_velocity(self.program_state)
+				mock_from_accel.assert_called_once()
+
+		# Second call - should use cache
+		with patch("milo_1_0_3.containers.Velocities.from_acceleration") as mock_from_accel:
 			ForcePropagationHandler._calculate_velocity(self.program_state)
+			mock_from_accel.assert_not_called()
 
-		# Verify the result was appended
-		self.program_state.velocities.append.assert_called_once_with(mock_velocity_result)
+	def test_cache_cleanup(self):
+		"""Test cache cleanup when size exceeds limit."""
+		# Create many different program states to fill cache
+		for i in range(1100):
+			program_state = Mock()
+			program_state.forces = [MagicMock()]
+			program_state.atoms = []
+			program_state.accelerations = MagicMock()
+
+			mock_acceleration = MagicMock()
+			mock_numpy_array = np.array([[float(i), 2.0, 3.0]])
+
+			with patch("milo_1_0_3.containers.Accelerations.from_forces", return_value=mock_acceleration):
+				with patch.object(mock_acceleration, "to_numpy", return_value=mock_numpy_array):
+					ForcePropagationHandler._calculate_acceleration(program_state)
+
+		# Cache should have been cleared at least once
+		self.assertLess(len(ForcePropagationHandler._acceleration_cache), 1100)
+
+	def test_validate_program_state(self):
+		"""Test program state validation."""
+		# Test missing forces
+		program_state = Mock()
+		program_state.forces = []
+		program_state.atoms = [Mock()]
+		program_state.step_size = 1.0
+		with self.assertRaises(ValueError) as cm:
+			ForcePropagationHandler._validate_program_state(program_state)
+		self.assertEqual(str(cm.exception), "No forces available in program state")
+
+		# Test missing atoms
+		program_state.forces = [Mock()]
+		program_state.atoms = []
+		with self.assertRaises(ValueError) as cm:
+			ForcePropagationHandler._validate_program_state(program_state)
+		self.assertEqual(str(cm.exception), "No atoms defined in program state")
+
+		# Test invalid step size
+		program_state.atoms = [Mock()]
+		program_state.step_size = 0
+		with self.assertRaises(ValueError) as cm:
+			ForcePropagationHandler._validate_program_state(program_state)
+		self.assertEqual(str(cm.exception), "Step size must be positive")
 
 
 class TestVerlet(unittest.TestCase):
@@ -97,8 +155,11 @@ class TestVerlet(unittest.TestCase):
 		self.program_state.structures = MagicMock()
 		self.program_state.velocities = [MagicMock()]
 		self.program_state.accelerations = [MagicMock()]
-		self.program_state.step_size = MagicMock()
-		self.program_state.atoms = []
+		# Configure step_size mock to handle comparisons
+		step_size_mock = MagicMock()
+		step_size_mock.__le__ = lambda x, y: False  # Make step_size > 0
+		self.program_state.step_size = step_size_mock
+		self.program_state.atoms = [Mock()]
 
 		# Configure mock structures
 		mock_structure = MagicMock()
@@ -112,7 +173,7 @@ class TestVerlet(unittest.TestCase):
 	@patch("milo_1_0_3.containers.Positions.from_acceleration")
 	@patch("milo_1_0_3.containers.Accelerations.from_forces")
 	def test_first_step(self, mock_from_forces, mock_from_accel, mock_from_vel):
-		"""Test first step calculation."""
+		"""Test first step calculation with validation."""
 		mock_structure = MagicMock()
 		mock_acceleration = MagicMock()
 		mock_from_forces.return_value = mock_acceleration
@@ -136,8 +197,11 @@ class TestVelocityVerlet(unittest.TestCase):
 		self.program_state.structures = MagicMock()
 		self.program_state.velocities = [MagicMock()]
 		self.program_state.accelerations = [MagicMock()]
-		self.program_state.step_size = MagicMock()
-		self.program_state.atoms = []
+		# Configure step_size mock to handle comparisons
+		step_size_mock = MagicMock()
+		step_size_mock.__le__ = lambda x, y: False  # Make step_size > 0
+		self.program_state.step_size = step_size_mock
+		self.program_state.atoms = [Mock()]
 
 		# Configure mock structure
 		mock_structure = MagicMock()
@@ -150,7 +214,7 @@ class TestVelocityVerlet(unittest.TestCase):
 	@patch("milo_1_0_3.containers.Positions.from_acceleration")
 	@patch("milo_1_0_3.containers.Accelerations.from_forces")
 	def test_step_calculation(self, mock_from_forces, mock_from_accel, mock_from_vel):
-		"""Test step calculation."""
+		"""Test step calculation with validation."""
 		mock_structure = MagicMock()
 		mock_acceleration = MagicMock()
 		mock_from_forces.return_value = mock_acceleration

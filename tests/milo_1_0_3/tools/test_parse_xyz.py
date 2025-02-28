@@ -8,6 +8,7 @@ import tempfile
 import unittest
 
 from milo_1_0_3.tools import parse_xyz
+from milo_1_0_3.tools.parse_xyz import CoordinateBlock
 
 
 class TestParseXYZ(unittest.TestCase):
@@ -44,19 +45,25 @@ O  1.1  0.0  0.0
 	def test_extract_coordinates(self):
 		"""Test extracting coordinate blocks from output file."""
 		with io.StringIO(self.test_out_content) as f:
-			blocks = parse_xyz.extract_coordinates(f)
+			# Convert generator to list for testing
+			blocks = list(parse_xyz.extract_coordinates(f))
 
 		self.assertEqual(len(blocks), 2)
-		self.assertEqual(blocks[0], ["H  0.0  0.0  0.0", "O  1.0  0.0  0.0"])
-		self.assertEqual(blocks[1], ["H  0.1  0.0  0.0", "O  1.1  0.0  0.0"])
+		self.assertEqual(blocks[0].lines, ["H  0.0  0.0  0.0", "O  1.0  0.0  0.0"])
+		self.assertEqual(blocks[1].lines, ["H  0.1  0.0  0.0", "O  1.1  0.0  0.0"])
 
 	def test_write_xyz_file(self):
 		"""Test writing coordinate blocks to XYZ file."""
-		blocks = [["H  0.0  0.0  0.0", "O  1.0  0.0  0.0"], ["H  0.1  0.0  0.0", "O  1.1  0.0  0.0"]]
+		# Create proper CoordinateBlock objects
+		blocks = [
+			CoordinateBlock(["H  0.0  0.0  0.0", "O  1.0  0.0  0.0"]),
+			CoordinateBlock(["H  0.1  0.0  0.0", "O  1.1  0.0  0.0"]),
+		]
 
 		with tempfile.TemporaryDirectory() as tmp_dir:
 			xyz_path = os.path.join(tmp_dir, "test.xyz")
-			parse_xyz.write_xyz_file(xyz_path, blocks)
+			# Convert list to iterator
+			parse_xyz.write_xyz_file(xyz_path, iter(blocks))
 
 			with open(xyz_path) as f:
 				content = f.read()

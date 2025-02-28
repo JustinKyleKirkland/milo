@@ -12,9 +12,10 @@ Example:
 """
 
 from enum import Enum, auto
-from typing import List
+from typing import List, Type
 
 
+# Unit-related enumerations
 class AccelerationUnits(Enum):
 	"""Units for measuring acceleration."""
 
@@ -34,13 +35,6 @@ class DistanceUnits(Enum):
 	ANGSTROM = auto()
 	BOHR = auto()
 	METER = auto()
-
-
-class EnergyBoost(Enum):
-	"""Configuration for energy boost usage."""
-
-	OFF = auto()
-	ON = auto()
 
 
 class EnergyUnits(Enum):
@@ -74,6 +68,37 @@ class FrequencyUnits(Enum):
 	RECIP_CM = auto()
 
 
+class MassUnits(Enum):
+	"""Units for measuring mass."""
+
+	AMU = auto()
+	KILOGRAM = auto()
+	GRAM = auto()
+
+
+class TimeUnits(Enum):
+	"""Units for measuring time."""
+
+	SECOND = auto()
+	FEMTOSECOND = auto()
+
+
+class VelocityUnits(Enum):
+	"""Units for measuring velocity."""
+
+	METER_PER_SEC = auto()
+	ANGSTROM_PER_FS = auto()
+	ANGSTROM_PER_SEC = auto()
+
+
+# Configuration enumerations
+class EnergyBoost(Enum):
+	"""Configuration for energy boost usage."""
+
+	OFF = auto()
+	ON = auto()
+
+
 class GeometryDisplacement(Enum):
 	"""Methods for initial structure equilibrium displacement."""
 
@@ -81,14 +106,6 @@ class GeometryDisplacement(Enum):
 	EDGE_WEIGHTED = auto()
 	GAUSSIAN_DISTRIBUTION = auto()
 	UNIFORM = auto()
-
-
-class MassUnits(Enum):
-	"""Units for measuring mass."""
-
-	AMU = auto()
-	KILOGRAM = auto()
-	GRAM = auto()
 
 
 class OscillatorType(Enum):
@@ -129,43 +146,14 @@ class RotationalEnergy(Enum):
 	NO = auto()
 
 
-class TimeUnits(Enum):
-	"""Units for measuring time."""
-
-	SECOND = auto()
-	FEMTOSECOND = auto()
-
-
-class VelocityUnits(Enum):
-	"""Units for measuring velocity."""
-
-	METER_PER_SEC = auto()
-	ANGSTROM_PER_FS = auto()
-	ANGSTROM_PER_SEC = auto()
-
-
-def get_all_enums() -> List[type]:
+def get_all_enums() -> List[Type[Enum]]:
 	"""Return a list of all enumeration classes in this module.
 
 	Returns:
-		List of all Enum classes defined in this module
+		List[Type[Enum]]: List of all Enum classes defined in this module
 	"""
 	return [
-		AccelerationUnits,
-		AngleUnits,
-		DistanceUnits,
-		EnergyBoost,
-		EnergyUnits,
-		ForceConstantUnits,
-		ForceUnits,
-		FrequencyUnits,
-		GeometryDisplacement,
-		MassUnits,
-		OscillatorType,
-		PhaseDirection,
-		ProgramID,
-		PropagationAlgorithm,
-		RotationalEnergy,
-		TimeUnits,
-		VelocityUnits,
+		cls
+		for name, cls in globals().items()
+		if isinstance(cls, type) and issubclass(cls, Enum) and cls.__module__ == __name__
 	]
